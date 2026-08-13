@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
-import { formations, stats } from "@/data/formations";
+import { formations, stats, aboutParagraphs } from "@/data/formations";
 import { Timeline } from "./Timeline";
 
 type IdentityKey = "dev" | "estudante" | "criador";
@@ -64,9 +64,7 @@ export const About = () => {
                 transition={{ duration: 0.4 }}
               >
                 <p className="text-base md:text-lg text-muted-foreground leading-relaxed max-w-2xl">
-                  Já adquiri habilidades em Python, SQL, desenvolvimento de web, manipulação de
-                  Inteligência artificial, trabalho em equipe e metodologias ágeis. Tenho inglês
-                  avançado com certificações pela Wizard e IW.
+                  {aboutParagraphs.dev}
                 </p>
                 <div className="flex flex-wrap gap-2 mt-6">
                   {["JavaScript", "Python", "React", "Java", "C++"].map((tech) => (
@@ -87,10 +85,7 @@ export const About = () => {
                 transition={{ duration: 0.4 }}
               >
                 <p className="text-base md:text-lg text-muted-foreground leading-relaxed max-w-2xl mb-8">
-                  Me formei em Tecnologia da Informação integrado ao ensino médio pela UNASP em
-                  2024, onde meu TCC ficou em 2º lugar entre mais de 25 projetos. Em 2025 passei
-                  na seletiva do curso de Engenharia de Software na FIAP e hoje estou no quarto
-                  semestre.
+                  {aboutParagraphs.estudante}
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {formations.map((f) => (
@@ -115,8 +110,7 @@ export const About = () => {
                 transition={{ duration: 0.4 }}
               >
                 <p className="text-base md:text-lg text-muted-foreground leading-relaxed max-w-2xl mb-6">
-                  Busco oportunidades na área de tecnologia para desenvolver minhas aptidões —
-                  colocando em prática o que aprendo através de projetos reais e experimentações.
+                  {aboutParagraphs.criador}
                 </p>
                 <a
                   href="#projects"
