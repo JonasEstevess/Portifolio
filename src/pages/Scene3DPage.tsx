@@ -1,16 +1,13 @@
-import { useState } from "react";
 import { LoadingScreen } from "@/components/portfolio/LoadingScreen";
+import { useIntroGate } from "@/hooks/use-intro-gate";
 import { Scene3D } from "@/components/scene3d/Scene3D";
+import { usePageTitle } from "@/hooks/use-page-title";
 
 const Scene3DPage = () => {
-  const [loading, setLoading] = useState(true);
+  usePageTitle("Portfólio 3D");
+  const { showIntro, finishIntro } = useIntroGate();
 
-  return (
-    <>
-      {loading && <LoadingScreen onDone={() => setLoading(false)} />}
-      {!loading && <Scene3D />}
-    </>
-  );
+  return showIntro ? <LoadingScreen onDone={finishIntro} /> : <Scene3D />;
 };
 
 export default Scene3DPage;
