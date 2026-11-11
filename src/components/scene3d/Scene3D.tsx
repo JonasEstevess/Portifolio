@@ -1,462 +1,238 @@
-import { useCallback, useEffect, useRef, useState, type TouchEvent as ReactTouchEvent } from "react";
-import * as THREE from "three";
+import { AnimatePresence, motion } from "framer-motion";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight, Code2, Mail, Maximize2, Sparkles } from "lucide-react";
 import jonasPhoto from "@/assets/jonas-hero-photo.jpeg";
+import { GitHubIcon } from "@/components/icons/GitHubIcon";
+import { LinkedInIcon } from "@/components/icons/LinkedInIcon";
+import { WhatsAppIcon } from "@/components/icons/WhatsAppIcon";
 import { PortfolioPanel } from "@/components/shared/PortfolioPanel";
 import { SectionDialog } from "@/components/shared/SectionDialog";
+import { EMAIL_DISPLAY, GITHUB_URL, LINKEDIN_URL, MAILTO_URL, WHATSAPP_URL } from "@/data/contact";
+import { aboutParagraphs, stats } from "@/data/formations";
+import { projects } from "@/data/projects";
 import { SECTIONS, sectionById, type SectionId } from "@/data/sections";
-import { buildWorld, PLAYER_HEIGHT, WORLD_RADIUS, type World } from "./world";
+import { techStack } from "@/data/techStack";
+import { timeline } from "@/data/timeline";
+import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
+import { CHAPTER_COUNT, ParticleStage } from "./ParticleStage";
 
-const WALK_SPEED = 6.4;
-const SPRINT_MULTIPLIER = 1.7;
-const JUMP_SPEED = 6.2;
-const GRAVITY = 18;
-const PLAYER_RADIUS = 0.5;
-const INTERACT_DISTANCE = 7.5;
-const MAX_PITCH = Math.PI / 2.2;
+/** Chapter 0 is the intro; chapters 1..5 map to the portfolio sections in order. */
+const sectionOf = (chapter: number): SectionId | null => (chapter === 0 ? null : SECTIONS[chapter - 1].id);
 
-type Engine = {
-  renderer: THREE.WebGLRenderer;
-  camera: THREE.PerspectiveCamera;
-  yaw: THREE.Object3D;
-  pitch: THREE.Object3D;
-  world: World;
-  keys: Record<string, boolean>;
-  touchMove: { x: number; y: number };
-  velocity: THREE.Vector3;
-  height: number;
-  verticalSpeed: number;
-  bob: number;
-  near: SectionId | null;
-  locked: boolean;
-  dragging: boolean;
+/** Only projects with a screenshot go on the 3D carousel; the dialog lists all of them. */
+const showcase = projects.filter((p) => p.image);
+
+/** A morph takes ~1.7 s; navigation is ignored until it is nearly done. */
+const MORPH_LOCK_MS = 1150;
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+const Chapter = ({ children }: { children: ReactNode }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 24, filter: "blur(8px)" }}
+    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+    exit={{ opacity: 0, y: -18, filter: "blur(8px)" }}
+    transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+  >
+    {children}
+  </motion.div>
+);
+
+const Eyebrow = ({ chapter }: { chapter: number }) => {
+  const meta = sectionById(sectionOf(chapter)!);
+  return (
+    <p className="label-sm flex items-center gap-3 mb-3 md:mb-4" style={{ color: meta.color }}>
+      <span className="tabular-nums">{pad(chapter)}</span>
+      <span className="h-px w-8 bg-current opacity-60" aria-hidden />
+      {meta.name}
+    </p>
+  );
 };
 
-const Key = ({ children }: { children: string }) => (
-  <kbd className="px-1.5 py-0.5 border border-border bg-card/70 rounded text-[10px] font-mono mr-1">{children}</kbd>
-);
+// Type scales with the smaller of width and height, so a phone held sideways still fits a chapter on screen.
+const headingClass =
+  "font-display font-semibold tracking-tight leading-[1.02] text-[clamp(1.35rem,min(4.4vw,7.2vh),3.6rem)] mb-[clamp(0.5rem,2vh,1.25rem)]";
+const bodyClass = "text-[clamp(0.8rem,min(1.6vw,2.6vh),1rem)] text-foreground/75 leading-relaxed";
 
 export const Scene3D = () => {
   const mountRef = useRef<HTMLDivElement>(null);
-  const minimapRef = useRef<HTMLCanvasElement>(null);
-  const engine = useRef<Engine | null>(null);
+  const stageRef = useRef<ParticleStage | null>(null);
+  const reduced = usePrefersReducedMotion();
 
-  const [started, setStarted] = useState(false);
-  const [paused, setPaused] = useState(false);
-  const [dragLook, setDragLook] = useState(false);
-  const [isTouch, setIsTouch] = useState(false);
-  const [isPortrait, setIsPortrait] = useState(false);
-  const [near, setNear] = useState<SectionId | null>(null);
-  const [panelId, setPanelId] = useState<SectionId | null>(null);
-  const [visited, setVisited] = useState<SectionId[]>([]);
-  const [webglFailed, setWebglFailed] = useState(false);
+  const [chapter, setChapter] = useState(0);
+  const [project, setProject] = useState(0);
+  const [panel, setPanel] = useState<SectionId | null>(null);
+  const [failed, setFailed] = useState(false);
+  // "side": text on the left, sculpture on the right (landscape). "stack": sculpture above the text (portrait).
+  const [mode, setMode] = useState<"side" | "stack">("side");
 
-  // The render loop and DOM listeners are created once; they read live values through these refs.
-  const live = useRef({ started, paused, panelId, isTouch, dragLook, visited: new Set<SectionId>() });
-  live.current.started = started;
-  live.current.paused = paused;
-  live.current.panelId = panelId;
-  live.current.isTouch = isTouch;
-  live.current.dragLook = dragLook;
+  const chapterRef = useRef(0);
+  const panelRef = useRef<SectionId | null>(null);
+  const lockedUntil = useRef(0);
+  chapterRef.current = chapter;
+  panelRef.current = panel;
 
-  useEffect(() => {
-    const mq = window.matchMedia("(orientation: portrait)");
-    const update = () => setIsPortrait(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
+  const goTo = useCallback((next: number) => {
+    const target = Math.max(0, Math.min(CHAPTER_COUNT - 1, next));
+    if (target === chapterRef.current || performance.now() < lockedUntil.current) return;
+    lockedUntil.current = performance.now() + MORPH_LOCK_MS;
+    setChapter(target);
   }, []);
 
-  const openPanel = useCallback((id: SectionId) => {
-    if (document.pointerLockElement) document.exitPointerLock();
-    live.current.visited.add(id);
-    setVisited(Array.from(live.current.visited));
-    setPanelId(id);
+  const stepProject = useCallback((direction: number) => {
+    setProject((current) => (current + direction + showcase.length) % showcase.length);
   }, []);
 
-  const lockPointer = useCallback(() => {
-    const canvas = engine.current?.renderer.domElement;
-    if (!canvas || live.current.isTouch) return;
-    try {
-      const result = canvas.requestPointerLock() as unknown as Promise<void> | undefined;
-      result?.catch?.(() => setDragLook(true));
-    } catch {
-      setDragLook(true);
-    }
-  }, []);
-
-  /** Places the player on the path in front of a pavilion, looking at it. */
-  const travelTo = useCallback((id: SectionId) => {
-    const e = engine.current;
-    const pavilion = e?.world.pavilions.find((p) => p.meta.id === id);
-    if (!e || !pavilion) return;
-    const standAt = pavilion.radius - 7;
-    e.yaw.position.x = Math.cos(pavilion.angleRad) * standAt;
-    e.yaw.position.z = Math.sin(pavilion.angleRad) * standAt;
-    e.yaw.rotation.y = Math.atan2(-Math.cos(pavilion.angleRad), -Math.sin(pavilion.angleRad));
-    e.pitch.rotation.x = 0.08;
-    e.velocity.set(0, 0, 0);
-  }, []);
-
-  // ---- One-time engine setup ----
+  // ---- WebGL stage ------------------------------------------------------
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
-
-    // Only real touch-first devices get the touch UI; a laptop with a touchscreen keeps mouse + keyboard.
-    const touch = window.matchMedia("(pointer: coarse)").matches;
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    setIsTouch(touch);
-    live.current.isTouch = touch;
-
-    let renderer: THREE.WebGLRenderer;
+    const small = window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
+    let stage: ParticleStage;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: !touch, powerPreference: "high-performance" });
+      stage = new ParticleStage(mount, {
+        count: small ? 22000 : 46000,
+        reducedMotion: reduced,
+        photoUrl: jonasPhoto,
+        projectImages: showcase.map((p) => p.image!),
+      });
     } catch {
-      setWebglFailed(true);
+      setFailed(true);
       return;
     }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, touch ? 1.5 : 2));
-    renderer.setSize(mount.clientWidth, mount.clientHeight);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
-    renderer.shadowMap.enabled = !touch;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    mount.appendChild(renderer.domElement);
+    stageRef.current = stage;
+    stage.setChapter(chapterRef.current);
 
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(70, mount.clientWidth / mount.clientHeight, 0.1, 600);
-    const pitch = new THREE.Object3D();
-    pitch.add(camera);
-    const yaw = new THREE.Object3D();
-    yaw.position.set(0, PLAYER_HEIGHT, 10);
-    yaw.rotation.y = Math.PI * 0.08;
-    yaw.add(pitch);
-
-    const world = buildWorld(scene, { shadows: !touch, photoUrl: jonasPhoto });
-    scene.add(yaw);
-
-    const e: Engine = {
-      renderer,
-      camera,
-      yaw,
-      pitch,
-      world,
-      keys: {},
-      touchMove: { x: 0, y: 0 },
-      velocity: new THREE.Vector3(),
-      height: 0,
-      verticalSpeed: 0,
-      bob: 0,
-      near: null,
-      locked: false,
-      dragging: false,
-    };
-    engine.current = e;
-
-    const onResize = () => {
-      camera.aspect = mount.clientWidth / mount.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(mount.clientWidth, mount.clientHeight);
-    };
+    const onResize = () => stage.resize();
     window.addEventListener("resize", onResize);
-
-    const look = (dx: number, dy: number, sensitivity: number) => {
-      yaw.rotation.y -= dx * sensitivity;
-      pitch.rotation.x = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch.rotation.x - dy * sensitivity));
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      const state = live.current;
-      if (!state.started || state.panelId) return;
-      e.keys[event.code] = true;
-      if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
-      if (event.code === "KeyE" && e.near) openPanel(e.near);
-      const digit = /^Digit([1-5])$/.exec(event.code);
-      if (digit) travelTo(SECTIONS[Number(digit[1]) - 1].id);
-    };
-    const onKeyUp = (event: KeyboardEvent) => {
-      e.keys[event.code] = false;
-    };
-    const releaseKeys = () => {
-      e.keys = {};
-    };
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
-    window.addEventListener("blur", releaseKeys);
-
-    const onPointerLockChange = () => {
-      e.locked = document.pointerLockElement === renderer.domElement;
-      const state = live.current;
-      // Esc releases the pointer: show a "click to continue" screen instead of leaving the visitor stuck.
-      if (!e.locked && state.started && !state.panelId && !state.isTouch && !state.dragLook) {
-        releaseKeys();
-        setPaused(true);
-      }
-      if (e.locked) setPaused(false);
-    };
-    const onPointerLockError = () => setDragLook(true);
-    document.addEventListener("pointerlockchange", onPointerLockChange);
-    document.addEventListener("pointerlockerror", onPointerLockError);
-
-    const onMouseMove = (event: MouseEvent) => {
-      if (e.locked || (e.dragging && live.current.dragLook)) look(event.movementX, event.movementY, 0.0022);
-    };
-    const onMouseDown = () => {
-      e.dragging = true;
-    };
-    const onMouseUp = () => {
-      e.dragging = false;
-    };
-    document.addEventListener("mousemove", onMouseMove);
-    renderer.domElement.addEventListener("mousedown", onMouseDown);
-    window.addEventListener("mouseup", onMouseUp);
-
-    const clock = new THREE.Clock();
-    const visitedSet = live.current.visited;
-    let frame = 0;
-
-    const animate = () => {
-      frame = requestAnimationFrame(animate);
-      const dt = Math.min(clock.getDelta(), 0.05);
-      const t = clock.elapsedTime;
-      const state = live.current;
-      const active = state.started && !state.paused && !state.panelId;
-
-      if (active) {
-        const k = e.keys;
-        let strafe = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0) + e.touchMove.x;
-        let forward = (k.KeyS || k.ArrowDown ? 1 : 0) - (k.KeyW || k.ArrowUp ? 1 : 0) + e.touchMove.y;
-        const length = Math.hypot(strafe, forward);
-        const sprinting = k.ShiftLeft || k.ShiftRight;
-        const speed = WALK_SPEED * (sprinting ? SPRINT_MULTIPLIER : 1);
-        const target = new THREE.Vector3();
-        if (length > 0.001) {
-          strafe /= length;
-          forward /= length;
-          const angle = yaw.rotation.y;
-          target.x = (forward * Math.sin(angle) + strafe * Math.cos(angle)) * speed;
-          target.z = (forward * Math.cos(angle) - strafe * Math.sin(angle)) * speed;
-        }
-        // Ease towards the target velocity: starts and stops feel weighted instead of robotic.
-        e.velocity.lerp(target, Math.min(1, dt * (length > 0.001 ? 10 : 8)));
-
-        let x = yaw.position.x + e.velocity.x * dt;
-        let z = yaw.position.z + e.velocity.z * dt;
-
-        const fromCenter = Math.hypot(x, z);
-        const limit = WORLD_RADIUS - 1.2;
-        if (fromCenter > limit) {
-          x *= limit / fromCenter;
-          z *= limit / fromCenter;
-        }
-        for (const c of world.colliders) {
-          const dx = x - c.x;
-          const dz = z - c.z;
-          const distance = Math.hypot(dx, dz);
-          const minimum = c.r + PLAYER_RADIUS;
-          if (distance < minimum && distance > 0.0001) {
-            x = c.x + (dx / distance) * minimum;
-            z = c.z + (dz / distance) * minimum;
-          }
-        }
-        yaw.position.x = x;
-        yaw.position.z = z;
-
-        // Jump
-        const grounded = e.height <= 0;
-        if (k.Space && grounded) e.verticalSpeed = JUMP_SPEED;
-        e.verticalSpeed -= GRAVITY * dt;
-        e.height = Math.max(0, e.height + e.verticalSpeed * dt);
-        if (e.height === 0 && e.verticalSpeed < 0) e.verticalSpeed = 0;
-
-        // Head bob while walking
-        const moving = Math.hypot(e.velocity.x, e.velocity.z);
-        if (!reducedMotion && grounded && moving > 0.6) e.bob += dt * moving * 1.7;
-        const bobOffset = reducedMotion ? 0 : Math.sin(e.bob) * 0.045 * Math.min(1, moving / WALK_SPEED);
-        yaw.position.y = PLAYER_HEIGHT + e.height + bobOffset;
-
-        // Which pavilion is in reach?
-        let nearest: SectionId | null = null;
-        let nearestDistance = INTERACT_DISTANCE;
-        for (const p of world.pavilions) {
-          const d = Math.hypot(x - p.pos.x, z - p.pos.z);
-          if (d < nearestDistance) {
-            nearest = p.meta.id;
-            nearestDistance = d;
-          }
-        }
-        if (nearest !== e.near) {
-          e.near = nearest;
-          setNear(nearest);
-        }
-      } else if (!state.started) {
-        // Slow orbit behind the welcome screen.
-        yaw.rotation.y += dt * 0.05;
-      }
-
-      world.update(dt, t, e.near, visitedSet);
-      drawMinimap();
-      renderer.render(scene, camera);
-    };
-
-    const drawMinimap = () => {
-      const canvas = minimapRef.current;
-      const ctx = canvas?.getContext("2d");
-      if (!canvas || !ctx) return;
-      const size = canvas.width;
-      const scale = (size / 2 - 10) / WORLD_RADIUS;
-      ctx.clearRect(0, 0, size, size);
-      ctx.save();
-      ctx.translate(size / 2, size / 2);
-
-      ctx.fillStyle = "rgba(60,122,74,0.35)";
-      ctx.strokeStyle = "rgba(255,255,255,0.35)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(0, 0, WORLD_RADIUS * scale, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-
-      for (const p of world.pavilions) {
-        ctx.strokeStyle = "rgba(255,255,255,0.28)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(p.pos.x * scale, p.pos.z * scale);
-        ctx.stroke();
-      }
-      for (const p of world.pavilions) {
-        const seen = visitedSet.has(p.meta.id);
-        ctx.beginPath();
-        ctx.arc(p.pos.x * scale, p.pos.z * scale, 6, 0, Math.PI * 2);
-        ctx.fillStyle = seen ? p.meta.color : "rgba(10,12,34,0.9)";
-        ctx.fill();
-        ctx.lineWidth = 2.5;
-        ctx.strokeStyle = p.meta.color;
-        ctx.stroke();
-      }
-      ctx.beginPath();
-      ctx.fillStyle = "#ffffff";
-      ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Player: a view cone plus an arrow. Canvas rotation is clockwise, yaw is counter-clockwise.
-      ctx.translate(yaw.position.x * scale, yaw.position.z * scale);
-      ctx.rotate(-yaw.rotation.y);
-      ctx.fillStyle = "rgba(255,255,255,0.18)";
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.arc(0, 0, 30, -Math.PI / 2 - 0.6, -Math.PI / 2 + 0.6);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.beginPath();
-      ctx.moveTo(0, -8);
-      ctx.lineTo(5.5, 6);
-      ctx.lineTo(0, 3);
-      ctx.lineTo(-5.5, 6);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    };
-
-    animate();
-
     return () => {
-      cancelAnimationFrame(frame);
       window.removeEventListener("resize", onResize);
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-      window.removeEventListener("blur", releaseKeys);
-      window.removeEventListener("mouseup", onMouseUp);
-      document.removeEventListener("pointerlockchange", onPointerLockChange);
-      document.removeEventListener("pointerlockerror", onPointerLockError);
-      document.removeEventListener("mousemove", onMouseMove);
-      renderer.domElement.removeEventListener("mousedown", onMouseDown);
-      if (document.pointerLockElement) document.exitPointerLock();
-      world.dispose();
-      renderer.dispose();
-      renderer.forceContextLoss();
-      if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
-      engine.current = null;
+      stage.dispose();
+      stageRef.current = null;
     };
-  }, [openPanel, travelTo]);
+  }, [reduced]);
 
-  // ---- Touch controls ----
-  const dpad = useRef({ up: false, down: false, left: false, right: false });
-  const lookTouch = useRef<{ id: number; x: number; y: number } | null>(null);
+  useEffect(() => stageRef.current?.setChapter(chapter), [chapter]);
+  useEffect(() => stageRef.current?.setProject(project), [project]);
 
-  const setDpad = (dir: keyof typeof dpad.current, pressed: boolean) => (event: ReactTouchEvent) => {
-    event.preventDefault();
-    dpad.current[dir] = pressed;
-    const d = dpad.current;
-    if (!engine.current) return;
-    engine.current.touchMove.x = (d.right ? 1 : 0) - (d.left ? 1 : 0);
-    engine.current.touchMove.y = (d.down ? 1 : 0) - (d.up ? 1 : 0);
+  useEffect(() => {
+    const update = () => {
+      const { innerWidth: w, innerHeight: h } = window;
+      setMode(w >= 640 && w / h > 1.15 ? "side" : "stack");
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  // Keep the sculpture clear of the text: beside it in "side" mode, above it in "stack" mode.
+  useEffect(() => {
+    const place = () => {
+      const stage = stageRef.current;
+      if (!stage) return;
+      const aspect = window.innerWidth / window.innerHeight;
+      if (chapter === 0) {
+        stage.setLayout({ x: 0, y: 0, scale: mode === "side" ? 1.45 : Math.max(0.75, Math.min(1.2, aspect * 1.5)) });
+      } else if (mode === "side") {
+        stage.setLayout({ x: Math.min(2.7, aspect * 1.22), y: 0, scale: 0.9 });
+      } else {
+        stage.setLayout({ x: 0, y: 1.9, scale: Math.max(0.42, Math.min(0.74, aspect * 1.05)) });
+      }
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [chapter, mode]);
+
+  // ---- Navigation: wheel, keys, swipe ----------------------------------
+  useEffect(() => {
+    let wheel = 0;
+    let wheelTimer = 0;
+    const onWheel = (e: WheelEvent) => {
+      if (panelRef.current) return;
+      wheel += e.deltaY;
+      window.clearTimeout(wheelTimer);
+      wheelTimer = window.setTimeout(() => (wheel = 0), 180);
+      if (Math.abs(wheel) < 50) return;
+      goTo(chapterRef.current + Math.sign(wheel));
+      wheel = 0;
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (panelRef.current) return;
+      const onProjects = sectionOf(chapterRef.current) === "projects";
+      switch (e.key) {
+        case " ":
+          // Space on a focused button or link must keep activating that control.
+          if (e.target instanceof Element && e.target.closest("button, a")) return;
+          goTo(chapterRef.current + 1);
+          break;
+        case "ArrowDown":
+        case "PageDown":
+          goTo(chapterRef.current + 1);
+          break;
+        case "ArrowUp":
+        case "PageUp":
+          goTo(chapterRef.current - 1);
+          break;
+        case "Home":
+          goTo(0);
+          break;
+        case "End":
+          goTo(CHAPTER_COUNT - 1);
+          break;
+        case "ArrowRight":
+          if (onProjects) stepProject(1);
+          else goTo(chapterRef.current + 1);
+          break;
+        case "ArrowLeft":
+          if (onProjects) stepProject(-1);
+          else goTo(chapterRef.current - 1);
+          break;
+        default:
+          if (/^[1-5]$/.test(e.key)) goTo(Number(e.key));
+          return;
+      }
+      e.preventDefault();
+    };
+
+    window.addEventListener("wheel", onWheel, { passive: true });
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("keydown", onKey);
+      window.clearTimeout(wheelTimer);
+    };
+  }, [goTo, stepProject]);
+
+  // Pointer: repels particles, a tap sends a shockwave, a drag swipes chapters or projects.
+  const drag = useRef<{ x: number; y: number } | null>(null);
+  const toNdc = (clientX: number, clientY: number) => {
+    const rect = mountRef.current!.getBoundingClientRect();
+    return [((clientX - rect.left) / rect.width) * 2 - 1, -(((clientY - rect.top) / rect.height) * 2 - 1)] as const;
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const [x, y] = toNdc(e.clientX, e.clientY);
+    stageRef.current?.setPointer(x, y);
+  };
+  const onPointerDown = (e: React.PointerEvent) => {
+    drag.current = { x: e.clientX, y: e.clientY };
+    onPointerMove(e);
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    const start = drag.current;
+    drag.current = null;
+    if (e.pointerType !== "mouse") stageRef.current?.setPointer(null);
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return stageRef.current?.burst();
+    if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 45) goTo(chapterRef.current + (dy < 0 ? 1 : -1));
+    else if (Math.abs(dx) > 45 && sectionOf(chapterRef.current) === "projects") stepProject(dx < 0 ? 1 : -1);
   };
 
-  const onLookStart = (event: ReactTouchEvent) => {
-    const touch = event.changedTouches[0];
-    lookTouch.current = { id: touch.identifier, x: touch.clientX, y: touch.clientY };
-  };
-  const onLookMove = (event: ReactTouchEvent) => {
-    const e = engine.current;
-    const current = lookTouch.current;
-    if (!e || !current) return;
-    for (const touch of Array.from(event.changedTouches)) {
-      if (touch.identifier !== current.id) continue;
-      e.yaw.rotation.y -= (touch.clientX - current.x) * 0.004;
-      e.pitch.rotation.x = Math.max(
-        -MAX_PITCH,
-        Math.min(MAX_PITCH, e.pitch.rotation.x - (touch.clientY - current.y) * 0.004)
-      );
-      current.x = touch.clientX;
-      current.y = touch.clientY;
-    }
-  };
-  const onLookEnd = (event: ReactTouchEvent) => {
-    for (const touch of Array.from(event.changedTouches)) {
-      if (touch.identifier === lookTouch.current?.id) lookTouch.current = null;
-    }
-  };
-
-  const handleStart = () => {
-    setStarted(true);
-    const e = engine.current;
-    if (e) {
-      e.yaw.rotation.y = 0;
-      e.pitch.rotation.x = 0.05;
-    }
-    if (!isTouch) {
-      lockPointer();
-      return;
-    }
-    // Best effort: Android Chrome allows locking orientation in fullscreen. Ignored elsewhere
-    // (notably iOS Safari), where the rotate-device overlay is the fallback.
-    document.documentElement
-      .requestFullscreen?.()
-      .then(() => {
-        const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-        orientation.lock?.("landscape").catch(() => {});
-      })
-      .catch(() => {});
-  };
-
-  const resume = () => {
-    setPaused(false);
-    lockPointer();
-  };
-
-  const closePanel = useCallback(() => {
-    setPanelId(null);
-    // Closing comes from a click or key press, so the browser allows locking the pointer again.
-    requestAnimationFrame(() => {
-      if (!live.current.dragLook) lockPointer();
-    });
-  }, [lockPointer]);
-
-  if (webglFailed) {
+  if (failed) {
     return (
       <div className="fixed inset-0 bg-background flex flex-col items-center justify-center text-center px-6">
         <h1 className="display-lg mb-3">O 3D não pôde ser carregado</h1>
@@ -476,215 +252,333 @@ export const Scene3D = () => {
     );
   }
 
-  const nearMeta = near ? sectionById(near) : null;
-  const allVisited = visited.length === SECTIONS.length;
-  const dpadButton =
-    "absolute w-12 h-12 rounded-lg bg-card/80 border border-border active:bg-primary/30 active:border-primary/60 flex items-center justify-center text-foreground text-lg";
+  const section = sectionOf(chapter);
+  const accent = section ? sectionById(section).color : "#6e63f0";
+  const current = showcase[project];
+  const detailsButton = section && (
+    <button
+      onClick={() => setPanel(section)}
+      className="inline-flex items-center gap-2 mt-[clamp(0.75rem,3vh,1.75rem)] px-5 py-2.5 border text-sm text-foreground bg-background/40 backdrop-blur-sm hover:bg-background/70 transition-colors"
+      style={{ borderColor: accent }}
+    >
+      <Maximize2 className="w-3.5 h-3.5" />
+      Ver tudo
+    </button>
+  );
 
   return (
-    <div className="fixed inset-0 bg-background overflow-hidden select-none">
-      <div ref={mountRef} className="absolute inset-0" />
+    <div className="fixed inset-0 bg-[#05060f] overflow-hidden select-none text-foreground">
+      <div
+        ref={mountRef}
+        className="absolute inset-0 touch-none"
+        onPointerMove={onPointerMove}
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+        onPointerLeave={() => stageRef.current?.setPointer(null)}
+        aria-hidden
+      />
+      {/* Legibility: darkens the side (or bottom) where the text sits, tinted by the chapter. */}
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            chapter === 0
+              ? "radial-gradient(ellipse 78% 44% at center, #05060fe6 0%, #05060f99 58%, transparent 100%)"
+              : `linear-gradient(${mode === "side" ? "90deg" : "0deg"}, #05060ff2 0%, #05060fb3 34%, transparent 62%), radial-gradient(ellipse at 80% 20%, ${accent}1f, transparent 55%)`,
+        }}
+      />
 
-      {isTouch && isPortrait && (
-        <div className="fixed inset-0 z-[150] bg-background flex flex-col items-center justify-center text-center px-8">
-          <div className="text-5xl mb-5 animate-bounce" style={{ animationDuration: "1.8s" }} aria-hidden>
-            📱↻
-          </div>
-          <p className="font-display text-lg font-semibold mb-2">Gire seu aparelho</p>
-          <p className="text-muted-foreground text-sm max-w-xs">
-            O mundo 3D funciona melhor na horizontal. Deite o celular ou tablet para continuar.
-          </p>
-          <Link to="/" className="mt-6 text-xs text-muted-foreground underline underline-offset-4">
-            Voltar ao início
-          </Link>
-        </div>
-      )}
+      <header className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-4 md:px-8 h-14 md:h-20">
+        <Link
+          to="/"
+          className="label-sm flex items-center gap-2 px-3 py-2 border border-border/70 bg-background/40 backdrop-blur-md hover:border-primary/60 transition-colors"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Início
+        </Link>
+        <span className="label-sm text-muted-foreground tabular-nums">
+          {pad(chapter)} / {pad(CHAPTER_COUNT - 1)}
+        </span>
+      </header>
 
-      <Link
-        to="/"
-        className="fixed top-4 left-4 z-[80] flex items-center gap-2 px-3.5 py-2 rounded-full bg-card/80 border border-border text-xs text-foreground backdrop-blur-md hover:border-primary/50 transition-colors"
+      {/* Chapter navigation */}
+      <nav
+        aria-label="Capítulos"
+        className="absolute z-20 right-3 md:right-7 top-1/2 -translate-y-1/2 flex flex-col items-end gap-1"
       >
-        ← Voltar ao início
-      </Link>
-
-      {!started && (
-        <div className="fixed inset-0 z-[70] flex flex-col items-center justify-center text-center px-6 bg-gradient-to-b from-background/40 via-background/55 to-background/85">
-          <span className="label-sm text-primary-glow mb-3">Experiência imersiva</span>
-          <h1 className="display-lg mb-3">
-            Bem-vindo ao meu <span className="text-primary">portfólio 3D</span>
-          </h1>
-          <p className="text-foreground/75 max-w-md mb-8 text-sm md:text-base">
-            Caminhe pelo parque e visite os cinco pavilhões para conhecer minha trajetória, formação, skills,
-            projetos e contato.
-          </p>
-          <button
-            onClick={handleStart}
-            autoFocus
-            className="px-8 py-3.5 rounded-full bg-gradient-to-r from-primary to-primary-glow text-primary-foreground font-semibold text-sm shadow-glow hover:scale-[1.03] transition-transform"
-          >
-            Entrar no mundo
-          </button>
-          {isTouch ? (
-            <p className="text-foreground/70 text-xs mt-6">
-              Use o direcional para andar, arraste a tela para olhar e toque em ABRIR nos pavilhões.
-            </p>
-          ) : (
-            <div className="flex gap-x-5 gap-y-2 flex-wrap justify-center mt-7 text-foreground/70 text-xs">
-              <span><Key>W A S D</Key>andar</span>
-              <span><Key>Shift</Key>correr</span>
-              <span><Key>Espaço</Key>pular</span>
-              <span><Key>E</Key>abrir pavilhão</span>
-              <span><Key>1–5</Key>ir direto</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {started && paused && !panelId && (
-        <div className="fixed inset-0 z-[70] flex flex-col items-center justify-center text-center px-6 bg-background/75 backdrop-blur-sm">
-          <h2 className="display-lg mb-6">Pausado</h2>
-          <button
-            onClick={resume}
-            autoFocus
-            className="px-8 py-3.5 rounded-full bg-foreground text-background font-semibold text-sm mb-8"
-          >
-            Clique para continuar
-          </button>
-          <span className="label-sm text-muted-foreground mb-3">Ou abra uma seção direto</span>
-          <div className="flex flex-wrap justify-center gap-2 max-w-lg">
-            {SECTIONS.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => {
-                  travelTo(s.id);
-                  openPanel(s.id);
-                  setPaused(false);
-                }}
-                className="px-4 py-2 border text-xs text-foreground bg-card/60 hover:bg-card transition-colors"
-                style={{ borderColor: s.color }}
+        {Array.from({ length: CHAPTER_COUNT }).map((_, i) => {
+          const id = sectionOf(i);
+          const label = id ? sectionById(id).short : "Abertura";
+          const active = i === chapter;
+          return (
+            <button
+              key={i}
+              onClick={() => goTo(i)}
+              aria-label={label}
+              aria-current={active ? "step" : undefined}
+              className="group flex items-center gap-3 py-2 pl-4"
+            >
+              <span
+                className={`label-sm hidden md:block transition-opacity ${
+                  active ? "opacity-100 text-foreground" : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 text-muted-foreground"
+                }`}
               >
-                {s.short}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {started && (
-        <div className="fixed inset-0 z-20 pointer-events-none">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-white/90 ring-1 ring-black/30" />
-
-          <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
-            <canvas
-              ref={minimapRef}
-              width={280}
-              height={280}
-              aria-hidden
-              className="w-[120px] h-[120px] md:w-[140px] md:h-[140px] rounded-2xl bg-card/70 border border-border backdrop-blur-md"
-            />
-            <div
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card/80 border border-border backdrop-blur-md"
-              aria-label={`${visited.length} de ${SECTIONS.length} pavilhões visitados`}
-            >
-              {SECTIONS.map((s) => (
-                <span
-                  key={s.id}
-                  title={s.name}
-                  className="w-2.5 h-2.5 rounded-full border"
-                  style={{ borderColor: s.color, backgroundColor: visited.includes(s.id) ? s.color : "transparent" }}
-                />
-              ))}
-              <span className="text-[11px] text-foreground ml-1 tabular-nums">
-                {visited.length}/{SECTIONS.length}
+                {label}
               </span>
-            </div>
-          </div>
-
-          {allVisited && !panelId && (
-            <div className="absolute top-16 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-full bg-card/90 border border-primary/50 text-xs text-foreground backdrop-blur-md pointer-events-auto flex items-center gap-3">
-              <span>Você visitou todos os pavilhões.</span>
-              <Link to="/2d" className="text-primary-glow underline underline-offset-4">
-                Jogar a versão 2D
-              </Link>
-            </div>
-          )}
-
-          {nearMeta && !panelId && !paused && (
-            <button
-              onClick={() => openPanel(nearMeta.id)}
-              className="absolute bottom-24 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2.5 rounded-full bg-card/90 border text-sm text-foreground backdrop-blur-md pointer-events-auto"
-              style={{ borderColor: nearMeta.color }}
-            >
-              {!isTouch && <Key>E</Key>}
-              abrir {nearMeta.name}
+              <span
+                className="block h-px transition-all duration-500"
+                style={{ width: active ? 30 : 14, backgroundColor: active ? accent : "hsl(var(--muted-foreground) / 0.6)" }}
+              />
             </button>
-          )}
+          );
+        })}
+      </nav>
 
-          {!isTouch && (
-            <p className="absolute bottom-5 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-background/45 backdrop-blur-sm text-[11px] text-foreground/85 tracking-wide text-center whitespace-nowrap">
-              WASD andar · Shift correr · Espaço pular · E abrir · 1–5 ir direto ·{" "}
-              {dragLook ? "arraste para olhar" : "Esc pausar"}
-            </p>
-          )}
+      {/* Content */}
+      <main
+        className={`absolute z-10 pointer-events-none flex ${
+          chapter === 0
+            ? "inset-0 items-center justify-center text-center px-6"
+            : mode === "side"
+              ? "left-0 top-14 bottom-12 md:top-20 md:bottom-16 w-[min(48vw,640px)] pl-[clamp(1.25rem,5vw,5rem)] pr-2"
+              : "inset-x-0 bottom-14 max-h-[58svh] px-5 pr-12 sm:px-10 sm:pr-16 justify-center"
+        }`}
+        aria-live="polite"
+      >
+        <div
+          className={`pointer-events-auto w-full ${
+            chapter === 0 ? "max-w-3xl" : `overflow-y-auto no-scrollbar max-h-full ${mode === "side" ? "my-auto" : "max-w-xl mt-auto"}`
+          }`}
+        >
+          <AnimatePresence mode="wait">
+            {chapter === 0 && (
+              <Chapter key="intro">
+                <p className="label-sm text-primary-glow mb-4 flex items-center justify-center gap-2">
+                  <Sparkles className="w-3.5 h-3.5" /> Portfólio em partículas
+                </p>
+                <h1 className="font-display font-semibold tracking-tight leading-[0.9] text-[clamp(2.6rem,min(13vw,24vh),10rem)]">
+                  JONAS
+                  <br />
+                  <span className="text-primary">ESTEVES</span>
+                </h1>
+                <p className="text-foreground/75 max-w-md mx-auto mt-[clamp(0.75rem,3vh,1.5rem)] text-sm md:text-base">
+                  Milhares de pontos de luz que se reorganizam para contar quem eu sou. Toque neles, e role para viajar.
+                </p>
+                <button
+                  onClick={() => goTo(1)}
+                  autoFocus
+                  className="group inline-flex items-center gap-3 mt-[clamp(1rem,4vh,2rem)] px-7 py-3.5 bg-foreground text-background text-sm font-medium"
+                >
+                  Começar
+                  <ArrowDown className="w-4 h-4 transition-transform group-hover:translate-y-1" />
+                </button>
+              </Chapter>
+            )}
+
+            {section === "about" && (
+              <Chapter key="about">
+                <Eyebrow chapter={chapter} />
+                <h2 className={headingClass}>Tecnologia com propósito.</h2>
+                <p className={bodyClass}>{aboutParagraphs.estudante}</p>
+                <dl className="grid grid-cols-3 gap-3 mt-[clamp(0.75rem,3vh,1.75rem)] max-w-md">
+                  {stats.map((s) => (
+                    <div key={s.label} className="flex flex-col-reverse border-t border-border/70 pt-2.5">
+                      <dt className="text-[11px] text-muted-foreground leading-snug mt-1">{s.label}</dt>
+                      <dd className="font-display text-[clamp(1.1rem,min(2.6vw,4.4vh),1.9rem)] font-semibold whitespace-nowrap">{s.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {detailsButton}
+              </Chapter>
+            )}
+
+            {section === "forma" && (
+              <Chapter key="forma">
+                <Eyebrow chapter={chapter} />
+                <h2 className={headingClass}>Uma trajetória em espiral.</h2>
+                <ol className="space-y-[clamp(0.3rem,1.4vh,0.9rem)]">
+                  {timeline.map((event) => (
+                    <li key={`${event.year}-${event.title}`} className="grid grid-cols-[3.2rem_1fr] gap-2 items-baseline">
+                      <span className="font-display text-sm tabular-nums" style={{ color: accent }}>
+                        {event.year}
+                      </span>
+                      <span>
+                        <span className="block text-[clamp(0.8rem,min(1.6vw,2.6vh),1rem)] font-medium text-foreground leading-snug">{event.title}</span>
+                        <span className="block text-xs text-muted-foreground">{event.place}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                {detailsButton}
+              </Chapter>
+            )}
+
+            {section === "skills" && (
+              <Chapter key="skills">
+                <Eyebrow chapter={chapter} />
+                <h2 className={headingClass}>Ferramentas que uso de verdade.</h2>
+                <ul className="flex flex-wrap gap-2">
+                  {techStack.map((skill) => (
+                    <li
+                      key={skill.name}
+                      className="flex items-center gap-2 px-3 py-2 border border-border/80 bg-background/40 backdrop-blur-sm text-xs md:text-sm"
+                    >
+                      {skill.src ? (
+                        <img src={skill.src} alt="" width={16} height={16} loading="lazy" className="w-4 h-4" />
+                      ) : (
+                        <Sparkles className="w-4 h-4 text-primary" />
+                      )}
+                      {skill.name}
+                    </li>
+                  ))}
+                </ul>
+                {detailsButton}
+              </Chapter>
+            )}
+
+            {section === "projects" && current && (
+              <Chapter key="projects">
+                <Eyebrow chapter={chapter} />
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="label-sm text-muted-foreground tabular-nums">
+                    {pad(project + 1)} / {pad(showcase.length)}
+                  </span>
+                  <button
+                    onClick={() => stepProject(-1)}
+                    aria-label="Projeto anterior"
+                    className="w-10 h-10 flex items-center justify-center border border-border/80 bg-background/40 hover:border-primary/60 transition-colors"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => stepProject(1)}
+                    aria-label="Próximo projeto"
+                    className="w-10 h-10 flex items-center justify-center border border-border/80 bg-background/40 hover:border-primary/60 transition-colors"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={current.title}
+                    initial={{ opacity: 0, x: 16 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -16 }}
+                    transition={{ duration: 0.25 }}
+                  >
+                    <h2 className={headingClass}>{current.title}</h2>
+                    <p className={`${bodyClass} line-clamp-3 md:line-clamp-4`}>{current.description}</p>
+                    <ul className="flex flex-wrap gap-1.5 mt-3 md:mt-4" aria-label="Tecnologias">
+                      {current.tags.slice(0, 5).map((tag) => (
+                        <li key={tag} className="text-[11px] px-2.5 py-1 border border-border/80 text-muted-foreground">
+                          {tag}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex flex-wrap gap-2.5 mt-4 md:mt-6">
+                      {current.liveUrl && (
+                        <a
+                          href={current.liveUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 px-5 py-2.5 bg-foreground text-background text-sm font-medium"
+                        >
+                          {current.liveLabel ?? "Ver projeto"} <ArrowUpRight className="w-4 h-4" />
+                        </a>
+                      )}
+                      <a
+                        href={current.repoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-5 py-2.5 border border-border/80 bg-background/40 text-sm"
+                      >
+                        <Code2 className="w-4 h-4" /> Código
+                      </a>
+                      <button
+                        onClick={() => setPanel("projects")}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 border text-sm bg-background/40"
+                        style={{ borderColor: accent }}
+                      >
+                        Todos os {projects.length}
+                      </button>
+                    </div>
+                  </motion.div>
+                </AnimatePresence>
+              </Chapter>
+            )}
+
+            {section === "contact" && (
+              <Chapter key="contact">
+                <Eyebrow chapter={chapter} />
+                <h2 className={headingClass}>Vamos construir algo.</h2>
+                <p className={bodyClass}>
+                  Aberto para estágios, oportunidades em tecnologia e colaborações em projetos, com disponibilidade
+                  para início imediato.
+                </p>
+                <a
+                  href={MAILTO_URL}
+                  className="inline-flex items-center gap-3 mt-5 md:mt-7 px-5 py-3.5 bg-foreground text-background text-sm md:text-base font-medium break-all"
+                >
+                  <Mail className="w-4 h-4 shrink-0" />
+                  {EMAIL_DISPLAY}
+                </a>
+                <div className="flex flex-wrap gap-2.5 mt-3">
+                  {[
+                    { icon: WhatsAppIcon, label: "WhatsApp", href: WHATSAPP_URL },
+                    { icon: LinkedInIcon, label: "LinkedIn", href: LINKEDIN_URL },
+                    { icon: GitHubIcon, label: "GitHub", href: GITHUB_URL },
+                  ].map(({ icon: Icon, label, href }) => (
+                    <a
+                      key={label}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 border border-border/80 bg-background/40 backdrop-blur-sm text-sm hover:border-primary/60 transition-colors"
+                    >
+                      <Icon className="w-4 h-4" />
+                      {label}
+                    </a>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-x-5 gap-y-2 mt-6 label-sm text-muted-foreground">
+                  <Link to="/landing" className="hover:text-foreground transition-colors">
+                    Ver a landing page →
+                  </Link>
+                  <Link to="/2d" className="hover:text-foreground transition-colors">
+                    Jogar a versão 2D →
+                  </Link>
+                </div>
+              </Chapter>
+            )}
+          </AnimatePresence>
         </div>
-      )}
+      </main>
 
-      {started && isTouch && !panelId && (
-        <div className="fixed inset-0 z-[25]">
-          <div className="absolute inset-0" onTouchStart={onLookStart} onTouchMove={onLookMove} onTouchEnd={onLookEnd} />
-
-          <div className="absolute bottom-6 left-6 w-40 h-28 select-none" style={{ touchAction: "none" }}>
-            <button
-              onTouchStart={setDpad("up", true)}
-              onTouchEnd={setDpad("up", false)}
-              onTouchCancel={setDpad("up", false)}
-              aria-label="Andar para frente"
-              className={`${dpadButton} top-0 left-1/2 -translate-x-1/2`}
-            >
-              ▲
-            </button>
-            <button
-              onTouchStart={setDpad("left", true)}
-              onTouchEnd={setDpad("left", false)}
-              onTouchCancel={setDpad("left", false)}
-              aria-label="Andar para a esquerda"
-              className={`${dpadButton} bottom-0 left-0`}
-            >
-              ◀
-            </button>
-            <button
-              onTouchStart={setDpad("down", true)}
-              onTouchEnd={setDpad("down", false)}
-              onTouchCancel={setDpad("down", false)}
-              aria-label="Andar para trás"
-              className={`${dpadButton} bottom-0 left-1/2 -translate-x-1/2`}
-            >
-              ▼
-            </button>
-            <button
-              onTouchStart={setDpad("right", true)}
-              onTouchEnd={setDpad("right", false)}
-              onTouchCancel={setDpad("right", false)}
-              aria-label="Andar para a direita"
-              className={`${dpadButton} bottom-0 right-0`}
-            >
-              ▶
-            </button>
-          </div>
-
+      {/* Footer hint / next */}
+      <div className="absolute z-20 bottom-4 md:bottom-7 inset-x-0 flex items-center justify-center pointer-events-none">
+        {chapter === 0 ? null : chapter < CHAPTER_COUNT - 1 ? (
           <button
-            onClick={() => near && openPanel(near)}
-            disabled={!near}
-            className="absolute bottom-9 right-6 w-16 h-16 rounded-full bg-primary/30 border border-primary/60 text-foreground text-[11px] font-semibold flex items-center justify-center disabled:opacity-40"
+            onClick={() => goTo(chapter + 1)}
+            className="pointer-events-auto label-sm flex items-center gap-2 px-4 py-2.5 text-muted-foreground hover:text-foreground transition-colors"
           >
-            ABRIR
+            <span className="hidden md:inline">Role, deslize ou use ↓</span>
+            <span className="md:hidden">Deslize para cima</span>
+            <ArrowDown className="w-3.5 h-3.5 animate-bounce" />
           </button>
-        </div>
-      )}
+        ) : (
+          <button
+            onClick={() => goTo(0)}
+            className="pointer-events-auto label-sm px-4 py-2.5 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Voltar ao começo ↑
+          </button>
+        )}
+      </div>
 
-      {panelId && (
-        <SectionDialog title={sectionById(panelId).name} accent={sectionById(panelId).color} onClose={closePanel}>
-          <PortfolioPanel id={panelId} />
+      {panel && (
+        <SectionDialog title={sectionById(panel).name} accent={sectionById(panel).color} onClose={() => setPanel(null)}>
+          <PortfolioPanel id={panel} />
         </SectionDialog>
       )}
     </div>

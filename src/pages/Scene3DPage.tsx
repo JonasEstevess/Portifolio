@@ -4,7 +4,7 @@ import { Scene3D } from "@/components/scene3d/Scene3D";
 import { usePageTitle } from "@/hooks/use-page-title";
 
 const Scene3DPage = () => {
-  usePageTitle("Portfólio 3D");
+  usePageTitle("Universo 3D");
   const { showIntro, finishIntro } = useIntroGate();
 
   return showIntro ? <LoadingScreen onDone={finishIntro} /> : <Scene3D />;
