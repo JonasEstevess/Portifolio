@@ -25,6 +25,18 @@ As branches são empilhadas nessa ordem: cada uma parte da anterior, então a ú
 As branches `feature/contact-buttons`, `feature/hero-buttons` e `feature/navbar-logo` não
 receberam commits: tudo o que caberia nelas já está coberto por `contact`, `hero` e `navbar`.
 
+## Entregue na versão 2.1
+
+| Ação                                                                                              | Branch            |
+| ------------------------------------------------------------------------------------------------- | ----------------- |
+| 3D refeito do zero: universo de partículas com shader, retrato em nuvem de pontos e carrossel 3D   | `feature/scene3d` |
+| Jogo 2D responsivo: largura da cena adaptável, menus em tela cheia e botões de toque maiores       | `feature/game2d`  |
+| Nome do rodapé dimensionado pela largura da tela (era cortado no celular)                          | `feature/contact` |
+
+O parque em primeira pessoa da versão 2.0 foi substituído. Ele exigia teclado e mouse,
+bloqueava o celular em pé e escondia o conteúdo atrás de uma caminhada; o novo formato
+funciona com um dedo em qualquer tela.
+
 ## Próximos passos
 
 ### Prioridade alta
@@ -50,7 +62,8 @@ receberam commits: tudo o que caberia nelas já está coberto por `contact`, `he
 
 ### Prioridade baixa
 
-10. Trilha sonora opcional no jogo e no 3D (hoje só há efeitos sintetizados no jogo).
+10. Trilha sonora opcional no jogo e no 3D (hoje só há efeitos sintetizados no jogo), e
+    partículas reagindo ao som.
 11. Controle por gamepad no jogo 2D.
 12. Testes de ponta a ponta com Playwright cobrindo as três rotas.
 13. Atualizar React Router para a v7 (as flags de compatibilidade já estão ligadas).
