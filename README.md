@@ -6,7 +6,7 @@ O mesmo portfólio em três formatos. O visitante escolhe como quer conhecer o t
 | ---------- | ---------------- | ----------------------------------------------------------------------------------------- |
 | `/`        | **Hub**          | Tela de escolha entre as três experiências.                                               |
 | `/landing` | **Landing page** | Página de rolagem com tipografia grande, galeria horizontal de projetos e índice completo. |
-| `/3d`      | **Mundo 3D**     | Parque em primeira pessoa com cinco pavilhões, um por seção do portfólio.                  |
+| `/3d`      | **Universo 3D**  | Milhares de partículas que se reorganizam em uma escultura para cada seção do portfólio.   |
 | `/2d`      | **Jogo 2D**      | Plataforma em pixel art: colete commits, corrija bugs e abra os terminais.                 |
 
 No ar em **https://portifolio-jonas-seven.vercel.app**
@@ -15,7 +15,7 @@ No ar em **https://portifolio-jonas-seven.vercel.app**
 
 - **React 18 + TypeScript + Vite**
 - **Tailwind CSS** para estilos e **Framer Motion** para animações
-- **Three.js** no mundo 3D (carregado só em `/3d`)
+- **Three.js** com shader próprio no universo 3D (carregado só em `/3d`)
 - **Canvas 2D** no jogo, com motor próprio, sem bibliotecas e sem arquivos de imagem ou som
 - **Vitest** para testes
 - Deploy no **Vercel**
@@ -41,7 +41,7 @@ O site abre em `http://localhost:8080`.
 | `npm run preview`   | Serve o build localmente                |
 | `npm run lint`      | ESLint                                  |
 | `npm run typecheck` | Checagem de tipos                       |
-| `npm test`          | Testes (motor do jogo, fase e dados)    |
+| `npm test`          | Testes (jogo, formas 3D e dados)        |
 
 ## Estrutura
 
@@ -51,7 +51,7 @@ src/
 ├── pages/                 Uma página por rota (Hub, Index, Scene3DPage, Game2DPage)
 ├── components/
 │   ├── portfolio/         Seções e efeitos da landing page
-│   ├── scene3d/           Mundo 3D: world.ts monta a cena, Scene3D.tsx é o motor e o HUD
+│   ├── scene3d/           Universo 3D: shapes.ts gera as formas, ParticleStage.ts é o WebGL, Scene3D.tsx a interface
 │   ├── game2d/            Interface do jogo (canvas, HUD, menus, controles de toque)
 │   └── shared/            Painéis e diálogo usados pelo 3D e pelo 2D
 ├── game2d/                Motor do jogo, sem React: fase, física, simulação, render, áudio
@@ -84,11 +84,35 @@ A fase é escrita em ASCII em [`src/game2d/level.ts`](src/game2d/level.ts):
 o  commit    e  bug        T  terminal       P  início     R  foguete
 ```
 
-## Mundo 3D
+## Universo 3D
 
-`W A S D` para andar, `Shift` para correr, `Espaço` para pular, `E` para abrir o pavilhão e
-`1`–`5` para ir direto a um deles. `Esc` pausa. Em celulares há direcional na tela e a câmera
-gira arrastando o dedo.
+Um único sistema de partículas (46 mil pontos no desktop, 22 mil no celular) que se desfaz e
+se recompõe a cada capítulo:
+
+| Capítulo  | Forma                                                       |
+| --------- | ----------------------------------------------------------- |
+| Abertura  | Galáxia espiral                                             |
+| Sobre     | Retrato em relevo, gerado a partir dos pixels da foto       |
+| Formação  | Dupla hélice com um marco para cada etapa                   |
+| Skills    | Átomo com três órbitas                                      |
+| Projetos  | Palco com um carrossel 3D dos screenshots                   |
+| Contato   | Avião de papel                                              |
+
+Navegue com a roda do mouse, as setas, `1`–`5` ou deslizando o dedo. O cursor afasta as
+partículas e um clique dispara uma onda. No capítulo de projetos, `←` `→` ou um arrasto
+lateral giram o carrossel. As formas são funções puras em
+[`src/components/scene3d/shapes.ts`](src/components/scene3d/shapes.ts) e a transição entre
+elas acontece inteira no vertex shader.
+
+## Responsividade
+
+As três experiências se adaptam a celular, tablet e desktop, em pé ou deitado:
+
+- **Landing:** uma coluna no celular; a galeria de projetos vira um carrossel de deslizar.
+- **Universo 3D:** texto ao lado da escultura em telas largas e abaixo dela em telas altas;
+  a tipografia escala pelo menor lado da tela.
+- **Jogo 2D:** a cena mostra de 16 a 25 blocos de largura conforme o formato da tela, então
+  no celular em pé os pixels continuam grandes, com os botões numa faixa própria.
 
 ## Documentação
 

@@ -4,7 +4,7 @@ import { GITHUB_URL, LINKEDIN_URL, WHATSAPP_URL } from "@/data/contact";
 
 const experiences = [
   { to: "/", label: "Início" },
-  { to: "/3d", label: "Mundo 3D" },
+  { to: "/3d", label: "Universo 3D" },
   { to: "/2d", label: "Jogo 2D" },
 ];
 
@@ -49,7 +49,10 @@ export const Footer = () => (
       </div>
     </div>
 
-    <p className="display-mega text-outline text-center whitespace-nowrap select-none -mb-[0.12em]" aria-hidden>
+    <p
+      className="font-display font-semibold text-outline text-center whitespace-nowrap select-none leading-[0.86] tracking-[-0.035em] text-[12.4vw] -mb-[0.12em]"
+      aria-hidden
+    >
       JONAS ESTEVES
     </p>
 

@@ -29,13 +29,13 @@ const experiences: Experience[] = [
   },
   {
     key: "3d",
-    title: "Mundo 3D",
+    title: "Universo 3D",
     description:
-      "Entre num parque em primeira pessoa e caminhe até os pavilhões que mostram sobre mim, formação, skills e projetos.",
+      "Milhares de partículas que se transformam a cada seção: meu retrato, uma hélice, um átomo, um palco de projetos.",
     icon: Box,
     href: "/3d",
     badge: "Imersivo",
-    meta: "~4 min · melhor no desktop",
+    meta: "~2 min · qualquer dispositivo",
   },
   {
     key: "2d",
