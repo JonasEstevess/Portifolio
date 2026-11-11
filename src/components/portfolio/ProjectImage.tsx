@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { slugify, type Project } from "@/data/projects";
+import type { Project } from "@/data/projects";
 
 const initialsOf = (title: string) =>
   title
@@ -10,44 +10,43 @@ const initialsOf = (title: string) =>
     .join("");
 
 /**
- * Tries to load /projects/<slug>.{jpg,jpeg,png,webp}. Falls back to a
- * typographic initials watermark when no screenshot has been added yet.
- * Drop matching files into public/projects/ to light these up automatically.
+ * Project screenshot, or a typographic initials watermark when the project
+ * has no `image` (or it fails to load). The path comes straight from the data
+ * file, so the browser never probes for files that are not there.
  */
-export const ProjectImage = ({ project, className = "" }: { project: Project; className?: string }) => {
-  const slug = slugify(project.title);
-  const extensions = ["jpg", "jpeg", "png", "webp"];
-  const [extIndex, setExtIndex] = useState(0);
+export const ProjectImage = ({
+  project,
+  className = "",
+  eager = false,
+}: {
+  project: Project;
+  className?: string;
+  eager?: boolean;
+}) => {
   const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    setExtIndex(0);
-    setFailed(false);
-  }, [slug]);
+  useEffect(() => setFailed(false), [project.image]);
 
-  const handleError = () => {
-    if (extIndex < extensions.length - 1) {
-      setExtIndex((i) => i + 1);
-    } else {
-      setFailed(true);
-    }
-  };
+  const showImage = project.image && !failed;
 
   return (
     <div className={`relative overflow-hidden bg-gradient-to-br ${project.accent} ${className}`}>
-      <div className="absolute inset-0 grid-bg opacity-30" />
-      {!failed && (
+      <div className="absolute inset-0 grid-bg opacity-30" aria-hidden />
+      {showImage ? (
         <img
-          key={extensions[extIndex]}
-          src={`/projects/${slug}.${extensions[extIndex]}`}
-          alt={project.title}
-          loading="lazy"
-          onError={handleError}
-          className="absolute inset-0 w-full h-full object-cover"
+          src={project.image}
+          alt={`Tela do projeto ${project.title}`}
+          loading={eager ? "eager" : "lazy"}
+          decoding="async"
+          draggable={false}
+          onError={() => setFailed(true)}
+          className="absolute inset-0 w-full h-full object-cover object-left-top"
         />
-      )}
-      {failed && (
-        <span className="absolute inset-0 flex items-center justify-center font-display font-semibold tracking-tight text-[6rem] md:text-[8rem] text-foreground/10 select-none">
+      ) : (
+        <span
+          aria-hidden
+          className="absolute inset-0 flex items-center justify-center font-display font-semibold tracking-tight text-[5rem] md:text-[7rem] text-foreground/10 select-none"
+        >
           {initialsOf(project.title)}
         </span>
       )}

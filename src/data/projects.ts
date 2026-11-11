@@ -9,13 +9,11 @@ export type Project = {
   liveLabel?: string;
   repoUrl: string;
   accent: string;
+  /** Screenshot under /public. Projects without one fall back to an initials watermark. */
+  image?: string;
 };
 
-/**
- * Deterministic slug used to look up an optional screenshot at
- * `/public/projects/<slug>.jpg`. Drop a matching image in that folder and the
- * showcase picks it up automatically — no code changes needed.
- */
+/** URL-safe slug of a project title; also the file name of its screenshot in /public/projects. */
 export const slugify = (title: string) =>
   title
     .toLowerCase()
@@ -27,6 +25,7 @@ export const slugify = (title: string) =>
 export const projects: Project[] = [
   {
     title: "Super Mario Galaxy",
+    image: "/projects/super-mario-galaxy.webp",
     description:
       "Landing page inspirada no universo de Super Mario Galaxy, desenvolvida com foco em experiência visual imersiva, animações modernas e design responsivo. O projeto apresenta personagens icônicos, vídeos interativos e efeitos espaciais que recriam a atmosfera do jogo da Nintendo de forma dinâmica e envolvente.",
     extra:
@@ -40,6 +39,7 @@ export const projects: Project[] = [
   },
   {
     title: "TCC — Cubo Multissensorial",
+    image: "/projects/tcc-cubo-multissensorial.webp",
     period: "jan 2024 – out 2024 • UNASP",
     description:
       "Trabalho de Conclusão de Curso desenvolvido no UNASP. O Cubo Multissensorial é um brinquedo comunicador em formato de cubo, criado para apoiar o desenvolvimento pessoal e auxiliar pessoas com transtornos mentais. O dispositivo utiliza Arduino e integra luzes, sons e interações táteis, proporcionando uma experiência sensorial com fins educativos e terapêuticos.",
@@ -54,6 +54,7 @@ export const projects: Project[] = [
   },
   {
     title: "Passa a Bola",
+    image: "/projects/passa-a-bola.webp",
     description:
       "Plataforma dedicada ao futebol feminino, com foco em divulgar atletas, times e conteúdos do universo da modalidade. Projeto desenvolvido em equipe com layout responsivo e navegação fluida.",
     tags: ["React", "JavaScript", "HTML/CSS", "Tailwind"],
@@ -65,6 +66,7 @@ export const projects: Project[] = [
   },
   {
     title: "Clone Airbnb",
+    image: "/projects/clone-airbnb.webp",
     description:
       "Clone da interface do Airbnb desenvolvido como exercício de front-end, replicando layout, componentes e responsividade do site original.",
     tags: ["React", "JavaScript", "HTML/CSS"],
@@ -75,6 +77,7 @@ export const projects: Project[] = [
   },
   {
     title: "Jogo do Número Secreto",
+    image: "/projects/jogo-do-numero-secreto.webp",
     description:
       "Jogo interativo onde o usuário tenta adivinhar um número secreto sorteado pelo sistema. Projeto focado em lógica de programação e manipulação do DOM.",
     tags: ["JavaScript", "HTML", "CSS"],
@@ -85,6 +88,7 @@ export const projects: Project[] = [
   },
   {
     title: "CodeDaily — Desafios Diários",
+    image: "/projects/codedaily-desafios-diarios.webp",
     description:
       "Plataforma interativa para programadores em formação, com cadastro e login de usuários, perguntas diárias gerenciadas por administradores, sistema de pontuação por acertos e ranking competitivo. Promove o aprendizado contínuo através de desafios renovados todos os dias.",
     tags: ["Python", "JSON", "CLI", "Autenticação"],
@@ -101,6 +105,7 @@ export const projects: Project[] = [
   },
   {
     title: "Cadastro de Jogadoras — CRUD",
+    image: "/projects/cadastro-de-jogadoras-crud.webp",
     description:
       "Aplicação CRUD completa para cadastro, edição, listagem e remoção de jogadoras. Projeto focado em manipulação de dados no front-end e lógica de programação.",
     tags: ["JavaScript", "HTML", "CSS", "CRUD"],
@@ -129,6 +134,7 @@ export const projects: Project[] = [
   },
   {
     title: "Carros",
+    image: "/projects/carros.webp",
     description:
       "Projeto web de exibição e catálogo de carros, com foco em layout responsivo, organização de cards e prática de componentização.",
     tags: ["React", "JavaScript", "HTML/CSS"],
@@ -139,6 +145,7 @@ export const projects: Project[] = [
   },
   {
     title: "Photo Portfolio",
+    image: "/projects/photo-portfolio.webp",
     description:
       "Portfólio fotográfico desenvolvido em equipe, com galeria responsiva e layout pensado para destacar as imagens com elegância e fluidez.",
     tags: ["HTML", "CSS", "JavaScript"],
