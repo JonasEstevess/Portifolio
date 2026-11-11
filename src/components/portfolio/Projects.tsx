@@ -1,247 +1,338 @@
-import { AnimatePresence, motion, type PanInfo } from "framer-motion";
-import { ArrowUpRight, ArrowLeft, ArrowRight, Code2, LayoutGrid, Rows3 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { projects } from "@/data/projects";
+import { AnimatePresence, motion, useMotionValue, useSpring, useTransform } from "framer-motion";
+import { ArrowDown, ArrowUpRight, Code2, Plus } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type MouseEvent } from "react";
+import { projects, type Project } from "@/data/projects";
+import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import { ProjectImage } from "./ProjectImage";
+import { FadeUp, RevealWords, SectionLabel } from "./Reveal";
 
-type ViewMode = "showcase" | "all";
+/** The first projects in the data file get the big gallery treatment. */
+const FEATURED_COUNT = 6;
+const featured = projects.slice(0, FEATURED_COUNT);
 
-export const Projects = () => {
-  const [index, setIndex] = useState(0);
-  const [direction, setDirection] = useState(1);
-  const [viewMode, setViewMode] = useState<ViewMode>("showcase");
-  const sectionRef = useRef<HTMLDivElement>(null);
-  const project = projects[index];
+const pad = (n: number) => String(n).padStart(2, "0");
 
-  const goTo = useCallback(
-    (next: number) => {
-      setDirection(next > index ? 1 : -1);
-      setIndex((next + projects.length) % projects.length);
-    },
-    [index]
+const ProjectLinks = ({ project, size = "md" }: { project: Project; size?: "sm" | "md" }) => {
+  const box = size === "md" ? "px-5 py-2.5 text-sm" : "px-4 py-2 text-xs";
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {project.liveUrl && (
+        <a
+          href={project.liveUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-cursor="ABRIR"
+          className={`group inline-flex items-center gap-2 bg-foreground text-background font-medium ${box}`}
+        >
+          {project.liveLabel ?? "Ver projeto"}
+          <ArrowUpRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+        </a>
+      )}
+      <a
+        href={project.repoUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`Código-fonte de ${project.title}`}
+        data-cursor="CODE"
+        className={`inline-flex items-center gap-2 border border-border font-medium text-muted-foreground hover:text-foreground hover:border-primary/50 transition-all ${box}`}
+      >
+        <Code2 className="w-4 h-4" />
+        Código
+      </a>
+    </div>
   );
+};
 
-  const next = useCallback(() => goTo(index + 1), [goTo, index]);
-  const prev = useCallback(() => goTo(index - 1), [goTo, index]);
+const FeaturedCard = ({ project, index }: { project: Project; index: number }) => (
+  <article
+    data-card
+    className="group shrink-0 snap-start w-[86vw] sm:w-[70vw] lg:w-[min(46vw,calc((100vh_-_25rem)*1.78))] lg:min-w-[420px] max-w-[920px] flex flex-col"
+    aria-label={project.title}
+  >
+    <div className="relative overflow-hidden border border-border">
+      <ProjectImage
+        project={project}
+        eager={index === 0}
+        className="aspect-[16/9] w-full transition-transform duration-700 ease-out group-hover:scale-[1.03]"
+      />
+      {project.badge && (
+        <span className="absolute top-3 left-3 label-sm px-3 py-1.5 bg-background/85 backdrop-blur-sm border border-primary/40 text-foreground">
+          {project.badge}
+        </span>
+      )}
+    </div>
+    <div className="grid grid-cols-[auto_1fr] gap-x-5 md:gap-x-8 mt-5">
+      <span className="font-display text-5xl md:text-7xl font-semibold text-outline tabular-nums leading-none" aria-hidden>
+        {pad(index + 1)}
+      </span>
+      <div>
+        <h3 className="font-display text-2xl md:text-3xl font-semibold tracking-tight mb-2">{project.title}</h3>
+        <p className="text-sm text-muted-foreground leading-relaxed line-clamp-2 max-w-xl mb-4">
+          {project.description}
+        </p>
+        <ul className="flex flex-wrap gap-1.5 mb-5" aria-label="Tecnologias">
+          {project.tags.slice(0, 5).map((tag) => (
+            <li key={tag} className="text-[11px] px-2.5 py-1 border border-border text-muted-foreground">
+              {tag}
+            </li>
+          ))}
+        </ul>
+        <ProjectLinks project={project} />
+      </div>
+    </div>
+  </article>
+);
 
-  const openInShowcase = (i: number) => {
-    setDirection(i > index ? 1 : -1);
-    setIndex(i);
-    setViewMode("showcase");
-  };
+/**
+ * Horizontal gallery. On desktop the section pins to the screen and vertical
+ * scrolling drives the cards sideways; on touch devices, small screens and
+ * with reduced motion it is a normal swipeable, snapping carousel.
+ */
+const FeaturedGallery = () => {
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const reduced = usePrefersReducedMotion();
+  const [pinned, setPinned] = useState(false);
+  const [distance, setDistance] = useState(0);
 
-  // Keyboard navigation, active only while the section is in view and in showcase mode.
   useEffect(() => {
-    const el = sectionRef.current;
-    if (!el) return;
-    let inView = false;
-    const observer = new IntersectionObserver(([entry]) => (inView = entry.isIntersecting), {
-      threshold: 0.4,
-    });
-    observer.observe(el);
+    const mq = window.matchMedia("(min-width: 1024px) and (pointer: fine)");
+    const update = () => setPinned(mq.matches && !reduced);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, [reduced]);
 
-    const onKey = (e: KeyboardEvent) => {
-      if (!inView || viewMode !== "showcase") return;
-      if (e.key === "ArrowRight") next();
-      if (e.key === "ArrowLeft") prev();
-    };
-    window.addEventListener("keydown", onKey);
+  useLayoutEffect(() => {
+    const track = trackRef.current;
+    if (!pinned || !track) return;
+    const measure = () => setDistance(Math.max(0, track.scrollWidth - window.innerWidth));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(track);
+    window.addEventListener("resize", measure);
     return () => {
       observer.disconnect();
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", measure);
     };
-  }, [next, prev, viewMode]);
+  }, [pinned]);
 
-  const onDragEnd = (_: unknown, info: PanInfo) => {
-    if (info.offset.x < -80) next();
-    else if (info.offset.x > 80) prev();
+  // Progress is measured by hand: the section's height depends on `distance`, which is only
+  // known after layout, so a scroll range captured at mount would be stale.
+  const progress = useMotionValue(0);
+  useEffect(() => {
+    if (!pinned) return;
+    const update = () => {
+      const section = sectionRef.current;
+      if (!section || distance <= 0) return progress.set(0);
+      progress.set(Math.min(1, Math.max(0, -section.getBoundingClientRect().top / distance)));
+    };
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [pinned, distance, progress]);
+  const x = useTransform(progress, (v) => -v * distance);
+  const barScale = useTransform(progress, [0, 1], [0.04, 1]);
+
+  // Tabbing into an off-screen card would otherwise make the browser scroll the
+  // clipped container sideways. Instead, move the page to where that card is centred.
+  const onFocus = (e: FocusEvent<HTMLDivElement>) => {
+    if (!pinned || !sectionRef.current || !viewportRef.current) return;
+    viewportRef.current.scrollLeft = 0;
+    const card = (e.target as HTMLElement).closest<HTMLElement>("[data-card]");
+    if (!card) return;
+    const top = sectionRef.current.getBoundingClientRect().top + window.scrollY;
+    const offset = Math.min(distance, Math.max(0, card.offsetLeft - 48));
+    window.scrollTo({ top: top + offset });
+  };
+
+  const cards = (
+    <>
+      {featured.map((project, i) => (
+        <FeaturedCard key={project.title} project={project} index={i} />
+      ))}
+      <a
+        href="#project-index"
+        data-card
+        data-cursor="↓"
+        className="group shrink-0 snap-start w-[70vw] sm:w-[40vw] lg:w-[30vw] max-w-[420px] aspect-[4/5] lg:aspect-auto lg:self-stretch border border-border hover:border-primary/60 transition-colors flex flex-col justify-between p-7"
+      >
+        <span className="label-sm text-muted-foreground">Tem mais</span>
+        <span>
+          <span className="font-display text-6xl md:text-8xl font-semibold block leading-none">
+            +{projects.length - FEATURED_COUNT}
+          </span>
+          <span className="flex items-center gap-2 mt-4 text-sm text-foreground">
+            Ver o índice completo
+            <ArrowDown className="w-4 h-4 transition-transform group-hover:translate-y-1" />
+          </span>
+        </span>
+      </a>
+    </>
+  );
+
+  if (!pinned) {
+    return (
+      <div
+        className="flex gap-5 overflow-x-auto snap-x snap-mandatory no-scrollbar px-6 scroll-px-6 pb-2"
+        role="region"
+        aria-label="Projetos em destaque"
+        tabIndex={0}
+      >
+        {cards}
+      </div>
+    );
+  }
+
+  return (
+    <div ref={sectionRef} style={{ height: `calc(100vh + ${distance}px)` }}>
+      <div ref={viewportRef} onFocus={onFocus} className="sticky top-0 h-screen overflow-hidden flex flex-col justify-center pt-20">
+        <motion.div ref={trackRef} style={{ x }} className="flex gap-8 w-max px-[max(1.5rem,calc((100vw-1280px)/2+1.5rem))] will-change-transform">
+          {cards}
+        </motion.div>
+        <div className="container mt-8" aria-hidden>
+          <div className="h-px w-full bg-border">
+            <motion.div className="h-px bg-primary origin-left" style={{ scaleX: barScale }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/** Screenshot that trails the cursor while a row of the index is hovered. */
+const HoverPreview = ({ project, x, y }: { project: Project | null; x: ReturnType<typeof useSpring>; y: ReturnType<typeof useSpring> }) => (
+  <motion.div
+    aria-hidden
+    className="pointer-events-none fixed top-0 left-0 z-40 hidden lg:block"
+    style={{ x, y, translateX: "24px", translateY: "-50%" }}
+  >
+    <AnimatePresence>
+      {project && (
+        <motion.div
+          key={project.title}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.94 }}
+          transition={{ duration: 0.25 }}
+          className="absolute w-[340px] border border-border shadow-elegant"
+        >
+          <ProjectImage project={project} className="aspect-[16/10] w-full" />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </motion.div>
+);
+
+const ProjectIndex = () => {
+  const [open, setOpen] = useState<string | null>(null);
+  const [hovered, setHovered] = useState<Project | null>(null);
+  const x = useSpring(useMotionValue(0), { stiffness: 260, damping: 28 });
+  const y = useSpring(useMotionValue(0), { stiffness: 260, damping: 28 });
+
+  const onMove = (e: MouseEvent) => {
+    x.set(e.clientX);
+    y.set(e.clientY);
   };
 
   return (
-    <section id="projects" ref={sectionRef} className="py-32 relative overflow-hidden">
-      <div className="container max-w-5xl">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6 }}
-          className="mb-14 flex items-end justify-between flex-wrap gap-4"
-        >
-          <div>
-            <span className="label-sm text-muted-foreground">Trabalhos selecionados</span>
-            <h2 className="display-lg mt-3">
-              Projetos em <span className="text-primary">destaque</span>.
-            </h2>
-          </div>
+    <div id="project-index" className="container max-w-6xl mt-28 scroll-mt-28" onMouseMove={onMove}>
+      <FadeUp className="flex items-end justify-between mb-6">
+        <h3 className="font-display text-2xl md:text-3xl font-semibold">Índice completo</h3>
+        <span className="label-sm text-muted-foreground tabular-nums">{pad(projects.length)} projetos</span>
+      </FadeUp>
 
-          <div className="flex items-center gap-4">
-            {viewMode === "showcase" && (
-              <div className="flex items-center gap-1.5">
-                {projects.map((p, i) => (
-                  <button
-                    key={p.title}
-                    onClick={() => openInShowcase(i)}
-                    aria-label={`Ir para ${p.title}`}
-                    className={`h-1 rounded-full transition-all duration-300 ${
-                      i === index ? "w-6 bg-primary" : "w-1.5 bg-border hover:bg-muted-foreground"
-                    }`}
-                  />
-                ))}
-              </div>
-            )}
-            <button
-              onClick={() => setViewMode(viewMode === "showcase" ? "all" : "showcase")}
-              data-cursor=""
-              className="inline-flex items-center gap-2 px-4 py-2 border border-border text-xs font-medium tracking-wide text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
-            >
-              {viewMode === "showcase" ? (
-                <>
-                  <LayoutGrid className="w-3.5 h-3.5" /> Ver todos ({projects.length})
-                </>
-              ) : (
-                <>
-                  <Rows3 className="w-3.5 h-3.5" /> Voltar ao showcase
-                </>
-              )}
-            </button>
-          </div>
-        </motion.div>
-
-        {viewMode === "showcase" ? (
-          <>
-            <div className="relative min-h-[560px] md:min-h-[460px]">
-              <AnimatePresence mode="wait" custom={direction}>
-                <motion.article
-                  key={project.title}
-                  custom={direction}
-                  drag="x"
-                  dragConstraints={{ left: -120, right: 120 }}
-                  dragElastic={0.6}
-                  onDragEnd={onDragEnd}
-                  initial={{ opacity: 0, x: direction * 60, filter: "blur(10px)" }}
-                  animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
-                  exit={{ opacity: 0, x: direction * -60, filter: "blur(10px)" }}
-                  transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                  data-cursor="DRAG"
-                  className="grid grid-cols-1 md:grid-cols-[1fr_1.1fr] gap-8 md:gap-12 items-start cursor-grab active:cursor-grabbing touch-pan-y"
-                >
-                  <ProjectImage
-                    project={project}
-                    className="aspect-[4/3] md:aspect-square w-full border border-border"
-                  />
-                  <div className="relative">
-                    <span className="absolute -top-9 left-0 label-sm text-muted-foreground tabular-nums md:hidden">
-                      {String(index + 1).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}
-                    </span>
-                    {project.badge && (
-                      <span className="label-sm inline-block px-3 py-1 border border-primary/30 text-primary mb-4">
-                        {project.badge}
-                      </span>
-                    )}
-                    <h3 className="font-display text-3xl md:text-4xl font-semibold mb-2">{project.title}</h3>
-                    {project.period && (
-                      <p className="text-xs text-muted-foreground/80 font-mono mb-4">{project.period}</p>
-                    )}
-                    <p className="text-muted-foreground mb-3 leading-relaxed">{project.description}</p>
-                    {project.extra && (
-                      <p className="text-muted-foreground mb-5 leading-relaxed">{project.extra}</p>
-                    )}
-
-                    <div className="flex flex-wrap gap-2 mb-7">
-                      {project.tags.map((tag) => (
-                        <span key={tag} className="text-xs px-3 py-1 border border-border text-muted-foreground">
-                          {tag}
-                        </span>
-                      ))}
+      <ul className="border-t border-border" onMouseLeave={() => setHovered(null)}>
+        {projects.map((project, i) => {
+          const isOpen = open === project.title;
+          const panelId = `project-panel-${i}`;
+          return (
+            <li key={project.title} className="border-b border-border">
+              <button
+                type="button"
+                aria-expanded={isOpen}
+                aria-controls={panelId}
+                onClick={() => setOpen(isOpen ? null : project.title)}
+                onMouseEnter={() => setHovered(isOpen ? null : project)}
+                data-cursor={isOpen ? "–" : "+"}
+                className="group w-full grid grid-cols-[2.5rem_1fr_auto] md:grid-cols-[4rem_1.4fr_1fr_auto] items-center gap-3 md:gap-6 py-5 md:py-6 text-left"
+              >
+                <span className="label-sm text-muted-foreground tabular-nums">{pad(i + 1)}</span>
+                <span className="font-display text-xl md:text-3xl font-semibold tracking-tight transition-all duration-300 group-hover:text-primary group-hover:translate-x-2">
+                  {project.title}
+                </span>
+                <span className="hidden md:block text-sm text-muted-foreground truncate">
+                  {project.tags.slice(0, 3).join(" · ")}
+                </span>
+                <Plus
+                  className={`w-5 h-5 text-muted-foreground transition-transform duration-300 ${isOpen ? "rotate-45 text-primary" : ""}`}
+                />
+              </button>
+              <AnimatePresence initial={false}>
+                {isOpen && (
+                  <motion.div
+                    id={panelId}
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                    className="overflow-hidden"
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-6 md:gap-10 pb-8 md:pl-[5.5rem]">
+                      <ProjectImage project={project} className="aspect-[16/10] w-full border border-border" />
+                      <div>
+                        {project.badge && (
+                          <span className="label-sm inline-block px-3 py-1 border border-primary/40 text-primary mb-4">
+                            {project.badge}
+                          </span>
+                        )}
+                        {project.period && <p className="text-xs text-muted-foreground font-mono mb-3">{project.period}</p>}
+                        <p className="text-muted-foreground leading-relaxed mb-3">{project.description}</p>
+                        {project.extra && <p className="text-muted-foreground leading-relaxed mb-3">{project.extra}</p>}
+                        <ul className="flex flex-wrap gap-1.5 my-5" aria-label="Tecnologias">
+                          {project.tags.map((tag) => (
+                            <li key={tag} className="text-xs px-3 py-1 border border-border text-muted-foreground">
+                              {tag}
+                            </li>
+                          ))}
+                        </ul>
+                        <ProjectLinks project={project} />
+                      </div>
                     </div>
-
-                    <div className="flex items-center gap-3">
-                      {project.liveUrl && (
-                        <a
-                          href={project.liveUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          data-cursor="VIEW"
-                          className="group inline-flex items-center gap-2 px-5 py-2.5 bg-foreground text-background text-sm font-medium"
-                        >
-                          {project.liveLabel ?? "Ver projeto"}
-                          <ArrowUpRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                        </a>
-                      )}
-                      <a
-                        href={project.repoUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label="Código fonte"
-                        data-cursor="CODE"
-                        className="inline-flex items-center gap-2 px-5 py-2.5 border border-border text-sm font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
-                      >
-                        <Code2 className="w-4 h-4" />
-                        Código
-                      </a>
-                    </div>
-                  </div>
-                </motion.article>
+                  </motion.div>
+                )}
               </AnimatePresence>
-            </div>
+            </li>
+          );
+        })}
+      </ul>
 
-            <div className="flex items-center justify-between mt-10 pt-6 border-t border-border">
-              <button
-                onClick={prev}
-                data-cursor=""
-                className="group inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
-                Anterior
-              </button>
-              <span className="label-sm text-muted-foreground tabular-nums">
-                {String(index + 1).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}
-              </span>
-              <button
-                onClick={next}
-                data-cursor=""
-                className="group inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Próximo
-                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-              </button>
-            </div>
-          </>
-        ) : (
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
-          >
-            {projects.map((p, i) => (
-              <button
-                key={p.title}
-                onClick={() => openInShowcase(i)}
-                data-cursor="VIEW"
-                className="group text-left border border-border hover:border-primary/40 transition-all overflow-hidden"
-              >
-                <ProjectImage project={p} className="aspect-video w-full" />
-                <div className="p-4">
-                  <span className="label-sm text-muted-foreground tabular-nums">
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                  <h3 className="font-display text-lg font-semibold mt-1 mb-2 group-hover:text-primary transition-colors">
-                    {p.title}
-                  </h3>
-                  <div className="flex flex-wrap gap-1.5">
-                    {p.tags.slice(0, 3).map((tag) => (
-                      <span key={tag} className="text-[10px] px-2 py-0.5 border border-border text-muted-foreground">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </div>
-    </section>
+      <HoverPreview project={hovered} x={x} y={y} />
+    </div>
   );
 };
+
+export const Projects = () => (
+  <section id="projects" className="relative pt-32 pb-32">
+    <div className="container max-w-6xl mb-12 lg:mb-4">
+      <SectionLabel index="02">Trabalhos selecionados</SectionLabel>
+      <h2 className="display-lg">
+        <RevealWords text="Projetos em *destaque.*" />
+      </h2>
+      <FadeUp delay={0.15}>
+        <p className="text-muted-foreground max-w-md mt-5">
+          {FEATURED_COUNT} trabalhos escolhidos a dedo, de um total de {projects.length}. Continue rolando para
+          percorrer a galeria.
+        </p>
+      </FadeUp>
+    </div>
+
+    <FeaturedGallery />
+    <ProjectIndex />
+  </section>
+);

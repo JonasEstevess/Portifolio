@@ -11,8 +11,8 @@ export const Timeline = () => {
   const lineHeight = useTransform(scrollYProgress, [0, 1], ["0%", "100%"]);
 
   return (
-    <div ref={ref} className="mt-28 max-w-2xl mx-auto">
-      <span className="label-sm text-muted-foreground block text-center mb-10">Trajetória</span>
+    <div ref={ref} className="relative mt-28 max-w-2xl">
+      <h3 className="label-sm text-muted-foreground mb-10">Trajetória</h3>
 
       <div className="relative pl-8">
         <div className="absolute left-[3px] top-1 bottom-1 w-px bg-border" />
@@ -34,7 +34,7 @@ export const Timeline = () => {
               <div className="absolute -left-8 top-1.5 w-[7px] h-[7px] rounded-full bg-primary" />
               <div className="flex items-baseline gap-3 flex-wrap">
                 <span className="font-display text-sm text-primary tabular-nums">{event.year}</span>
-                <h3 className="font-display text-lg font-semibold text-foreground">{event.title}</h3>
+                <h4 className="font-display text-lg font-semibold text-foreground">{event.title}</h4>
               </div>
               <p className="text-sm text-muted-foreground mt-1">{event.place}</p>
             </motion.div>

@@ -1,32 +1,22 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles } from "lucide-react";
-import { useRef, useState } from "react";
-import useEmblaCarousel from "embla-carousel-react";
-import Autoplay from "embla-carousel-autoplay";
+import { useState } from "react";
+import { Marquee } from "./Marquee";
+import { RevealWords, SectionLabel } from "./Reveal";
 import { techStack, relatedProjectsFor, softSkills, type TechItem } from "@/data/techStack";
 
 export const Skills = () => {
   const [selected, setSelected] = useState<TechItem>(techStack[0]);
   const related = relatedProjectsFor(selected);
 
-  const autoplay = useRef(Autoplay({ delay: 2000, stopOnInteraction: false, stopOnMouseEnter: true }));
-  const [emblaRef] = useEmblaCarousel({ loop: true, align: "start", dragFree: true }, [autoplay.current]);
 
   return (
     <section id="skills" className="py-32 relative">
-      <div className="container max-w-4xl">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6 }}
-          className="mb-12"
-        >
-          <span className="label-sm text-muted-foreground">Tech Stack</span>
-          <h2 className="display-lg mt-3">
-            Ferramentas que <span className="text-primary">uso de verdade</span>.
-          </h2>
-        </motion.div>
+      <div className="container max-w-6xl">
+        <SectionLabel index="03">Tech Stack</SectionLabel>
+        <h2 className="display-lg mb-12">
+          <RevealWords text="Ferramentas que *uso de verdade.*" />
+        </h2>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-10 items-start">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -38,6 +28,8 @@ export const Skills = () => {
                 viewport={{ once: true }}
                 transition={{ duration: 0.4, delay: i * 0.03 }}
                 onMouseEnter={() => setSelected(skill)}
+                onFocus={() => setSelected(skill)}
+                aria-pressed={selected.name === skill.name}
                 onClick={() => setSelected(skill)}
                 data-cursor=""
                 className={`flex items-center gap-3 p-4 border text-left transition-all ${
@@ -56,7 +48,7 @@ export const Skills = () => {
             ))}
           </div>
 
-          <div className="border border-primary/25 bg-primary/5 p-6 min-h-[220px] lg:sticky lg:top-28">
+          <div aria-live="polite" className="border border-primary/25 bg-primary/5 p-6 min-h-[220px] lg:sticky lg:top-28">
             <AnimatePresence mode="wait">
               <motion.div
                 key={selected.name}
@@ -103,18 +95,22 @@ export const Skills = () => {
             <div className="pointer-events-none absolute inset-y-0 left-0 w-12 z-10 bg-gradient-to-r from-background to-transparent" />
             <div className="pointer-events-none absolute inset-y-0 right-0 w-12 z-10 bg-gradient-to-l from-background to-transparent" />
 
-            <div className="overflow-hidden" ref={emblaRef}>
-              <div className="flex -ml-3 py-2">
-                {softSkills.map((skill) => (
-                  <div key={skill} className="pl-3 shrink-0">
-                    <span className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-primary/15 border border-primary/40 text-foreground text-sm font-medium whitespace-nowrap hover:bg-primary/25 transition-colors">
-                      <Sparkles className="w-3.5 h-3.5 text-primary" />
-                      {skill}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <Marquee speed={4} className="py-2">
+              {softSkills.map((skill) => (
+                <span
+                  key={skill}
+                  className="inline-flex items-center gap-2 mr-3 px-5 py-3 rounded-full bg-primary/15 border border-primary/40 text-foreground text-sm font-medium whitespace-nowrap"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-primary" />
+                  {skill}
+                </span>
+              ))}
+            </Marquee>
+            <ul className="sr-only">
+              {softSkills.map((skill) => (
+                <li key={skill}>{skill}</li>
+              ))}
+            </ul>
           </div>
         </motion.div>
       </div>
