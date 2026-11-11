@@ -140,6 +140,7 @@ export class Renderer {
   draw(ctx: CanvasRenderingContext2D, clock: number) {
     const game = this.game;
     const camera = Math.round(game.cameraX);
+    const view = game.viewWidth;
     const zone = game.hud().zone;
     const zoneColor = sectionById(game.level.zoneSections[zone]).color;
 
@@ -149,7 +150,7 @@ export class Renderer {
     // Horizon glow tinted by the section the player is in.
     ctx.globalAlpha = 0.16;
     ctx.fillStyle = zoneColor;
-    ctx.fillRect(0, VIEW_H - 90, VIEW_W, 90);
+    ctx.fillRect(0, VIEW_H - 90, view, 90);
     ctx.globalAlpha = 1;
 
     for (const star of this.stars) {
@@ -164,23 +165,23 @@ export class Renderer {
     // Moon
     ctx.fillStyle = "#f3f0ff";
     ctx.beginPath();
-    ctx.arc(318 - camera * 0.01, 40, 13, 0, Math.PI * 2);
+    ctx.arc(view - 82 - camera * 0.01, 40, 13, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "#d6d1f5";
-    ctx.fillRect(312 - camera * 0.01, 35, 4, 3);
-    ctx.fillRect(321 - camera * 0.01, 44, 3, 3);
+    ctx.fillRect(view - 88 - camera * 0.01, 35, 4, 3);
+    ctx.fillRect(view - 79 - camera * 0.01, 44, 3, 3);
 
-    this.tile(ctx, this.farSkyline, camera * 0.15);
-    this.tile(ctx, this.nearSkyline, camera * 0.35);
+    this.tile(ctx, this.farSkyline, camera * 0.15, view);
+    this.tile(ctx, this.nearSkyline, camera * 0.35, view);
 
     ctx.save();
     const shake = game.shake > 0 ? Math.round((Math.random() - 0.5) * 4) : 0;
     ctx.translate(-camera + shake, shake);
 
     this.drawZoneFlags(ctx);
-    ctx.drawImage(this.tiles, camera, 0, VIEW_W, VIEW_H, camera, 0, VIEW_W, VIEW_H);
+    ctx.drawImage(this.tiles, camera, 0, view, VIEW_H, camera, 0, view, VIEW_H);
     this.drawTerminals(ctx, clock);
-    this.drawCommits(ctx, clock, camera);
+    this.drawCommits(ctx, clock, camera, view);
     this.drawRocket(ctx, clock);
     this.drawBugs(ctx);
     this.drawPlayer(ctx);
@@ -194,9 +195,9 @@ export class Renderer {
     ctx.restore();
   }
 
-  private tile(ctx: CanvasRenderingContext2D, image: HTMLCanvasElement, offset: number) {
+  private tile(ctx: CanvasRenderingContext2D, image: HTMLCanvasElement, offset: number, view: number) {
     const start = -(Math.floor(offset) % image.width);
-    for (let x = start; x < VIEW_W; x += image.width) ctx.drawImage(image, x, 0);
+    for (let x = start; x < view; x += image.width) ctx.drawImage(image, x, 0);
   }
 
   private drawZoneFlags(ctx: CanvasRenderingContext2D) {
@@ -262,9 +263,9 @@ export class Renderer {
     }
   }
 
-  private drawCommits(ctx: CanvasRenderingContext2D, clock: number, camera: number) {
+  private drawCommits(ctx: CanvasRenderingContext2D, clock: number, camera: number, view: number) {
     for (const c of this.game.commits) {
-      if (c.taken || c.x < camera - TILE || c.x > camera + VIEW_W) continue;
+      if (c.taken || c.x < camera - TILE || c.x > camera + view) continue;
       const cx = c.x + 8;
       const cy = c.y + 8 + Math.round(Math.sin(clock * 3 + c.x * 0.1) * 2);
       const spin = Math.abs(Math.cos(clock * 3.2 + c.x * 0.05));

@@ -110,6 +110,8 @@ export class Game {
   cameraX = 0;
   /** Seconds since the rocket was reached. */
   launchTime = 0;
+  /** Visible width in pixels. Narrow (portrait) screens show fewer tiles so pixels stay large. */
+  viewWidth = VIEW_W;
   /** Brief screen shake after taking damage. */
   shake = 0;
   checkpoint: Point;
@@ -239,8 +241,8 @@ export class Game {
 
   private cameraTarget() {
     const p = this.player;
-    const target = p.x + p.w / 2 - VIEW_W / 2 + p.facing * 22;
-    return Math.max(0, Math.min(this.levelWidth - VIEW_W, target));
+    const target = p.x + p.w / 2 - this.viewWidth / 2 + p.facing * (this.viewWidth / 18);
+    return Math.max(0, Math.min(this.levelWidth - this.viewWidth, target));
   }
 
   private updatePlayer(input: Input, dt: number) {

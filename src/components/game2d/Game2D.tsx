@@ -5,7 +5,7 @@ import { PortfolioPanel } from "@/components/shared/PortfolioPanel";
 import { SectionDialog } from "@/components/shared/SectionDialog";
 import { SECTIONS, sectionById, type SectionId } from "@/data/sections";
 import { GameAudio } from "@/game2d/audio";
-import { MAX_HEARTS, STEP, VIEW_H, VIEW_W } from "@/game2d/constants";
+import { MAX_HEARTS, MIN_VIEW_W, STEP, TILE, VIEW_H, VIEW_W } from "@/game2d/constants";
 import { emptyInput, Game, type Hud } from "@/game2d/game";
 import { Renderer } from "@/game2d/render";
 
@@ -45,10 +45,11 @@ export const Game2D = () => {
   const [best, setBest] = useState<number | null>(null);
   const [newRecord, setNewRecord] = useState(false);
   const [isTouch, setIsTouch] = useState(false);
-  const [size, setSize] = useState({ w: VIEW_W, h: VIEW_H });
+  const [size, setSize] = useState({ w: VIEW_W, h: VIEW_H, view: VIEW_W, reserve: 0 });
   const [banner, setBanner] = useState<number | null>(null);
 
   // The loop and key handlers live for the whole mount; they read these refs instead of stale state.
+  const viewRef = useRef(VIEW_W);
   const phaseRef = useRef<Phase>("intro");
   const panelRef = useRef<SectionId | null>(null);
   phaseRef.current = phase;
@@ -59,6 +60,7 @@ export const Game2D = () => {
     game.onHud = setHud;
     game.onSfx = (name) => audioRef.current?.play(name);
     game.onOpenTerminal = (section) => setPanel(section);
+    game.viewWidth = viewRef.current;
     gameRef.current = game;
     rendererRef.current = new Renderer(game);
     inputRef.current = emptyInput();
@@ -109,12 +111,23 @@ export const Game2D = () => {
     };
   }, [newGame]);
 
-  // Fit the canvas to the window, snapping to whole multiples when there is room so pixels stay square.
+  // Fit the canvas to the window. The view keeps its height (the whole level is always visible
+  // top to bottom) and shows between 16 and 25 tiles across depending on the screen's shape, so a
+  // phone held upright gets big pixels instead of a thin letterboxed strip. Touch screens in
+  // portrait also keep a band free at the bottom for the on-screen buttons.
   useEffect(() => {
     const fit = () => {
-      const raw = Math.min(window.innerWidth / VIEW_W, window.innerHeight / VIEW_H);
+      const { innerWidth: w, innerHeight: h } = window;
+      const touch = window.matchMedia("(pointer: coarse)").matches;
+      const reserve = touch && h > w ? Math.min(190, h * 0.26) : 0;
+      const available = h - reserve;
+      const tiles = Math.max(MIN_VIEW_W / TILE, Math.min(VIEW_W / TILE, Math.round(((VIEW_H * w) / available) / TILE)));
+      const view = tiles * TILE;
+      const raw = Math.min(w / view, available / VIEW_H);
       const scale = raw >= 2 ? Math.floor(raw * 2) / 2 : raw;
-      setSize({ w: Math.floor(VIEW_W * scale), h: Math.floor(VIEW_H * scale) });
+      viewRef.current = view;
+      if (gameRef.current) gameRef.current.viewWidth = view;
+      setSize({ w: Math.floor(view * scale), h: Math.floor(VIEW_H * scale), view, reserve });
     };
     fit();
     window.addEventListener("resize", fit);
@@ -270,11 +283,14 @@ export const Game2D = () => {
     "pointer-events-auto select-none touch-none flex items-center justify-center rounded-full border border-white/30 bg-black/40 text-white active:bg-primary/60 backdrop-blur-sm";
 
   return (
-    <div className="fixed inset-0 bg-[#070818] overflow-hidden select-none flex items-center justify-center font-mono">
+    <div
+      className="fixed inset-0 bg-[#070818] overflow-hidden select-none flex items-center justify-center font-mono"
+      style={{ paddingBottom: size.reserve }}
+    >
       <div className="relative" style={{ width: size.w, height: size.h }}>
         <canvas
           ref={canvasRef}
-          width={VIEW_W}
+          width={size.view}
           height={VIEW_H}
           aria-label="Jogo 2D: Jornada do Dev"
           role="img"
@@ -370,12 +386,12 @@ export const Game2D = () => {
 
         {/* Intro */}
         {phase === "intro" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 bg-[#070818]/75 backdrop-blur-[2px] text-white overflow-y-auto">
+          <div className="fixed inset-0 z-30 flex flex-col items-center justify-center text-center px-5 py-6 bg-[#070818]/80 backdrop-blur-[2px] text-white overflow-y-auto">
             <p className="text-[10px] sm:text-xs tracking-[0.3em] text-primary-glow mb-2">PORTFÓLIO JOGÁVEL</p>
-            <h1 className="font-display text-2xl sm:text-5xl font-semibold uppercase leading-none mb-3">
+            <h1 className="font-display text-[clamp(1.9rem,min(9vw,13vh),3.75rem)] font-semibold uppercase leading-none mb-3">
               Jornada <span className="text-primary">do Dev</span>
             </h1>
-            <p className="text-[11px] sm:text-sm text-white/70 max-w-md mb-5 font-sans">
+            <p className="text-sm text-white/70 max-w-md mb-5 font-sans">
               Corra por cinco fases, colete commits, corrija bugs e abra os terminais para conhecer minha
               trajetória. No fim, faça o deploy no foguete.
             </p>
@@ -394,9 +410,9 @@ export const Game2D = () => {
                 <span><Key>Esc</Key> pausar</span>
               </div>
             ) : (
-              <p className="mt-5 text-[10px] text-white/60 font-sans">Use os botões na tela. Na horizontal fica melhor.</p>
+              <p className="mt-5 text-xs text-white/60 font-sans">Use os botões na tela para andar e pular.</p>
             )}
-            <Link to="/landing" className="mt-4 text-[10px] sm:text-[11px] text-white/50 underline underline-offset-4 font-sans">
+            <Link to="/landing" className="mt-4 text-xs text-white/50 underline underline-offset-4 font-sans">
               Prefere só ler? Ir para a landing page
             </Link>
           </div>
@@ -404,7 +420,7 @@ export const Game2D = () => {
 
         {/* Pause */}
         {phase === "paused" && !panel && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center px-4 bg-[#070818]/85 text-white overflow-y-auto">
+          <div className="fixed inset-0 z-30 flex flex-col items-center justify-center px-4 bg-[#070818]/85 text-white overflow-y-auto">
             <h2 className="font-display text-xl sm:text-3xl font-semibold uppercase mb-4">Pausado</h2>
             <div className="flex flex-wrap justify-center gap-2 mb-5 font-sans">
               <button
@@ -439,12 +455,12 @@ export const Game2D = () => {
 
         {/* Victory */}
         {phase === "won" && hud && !panel && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 bg-[#070818]/88 text-white overflow-y-auto">
+          <div className="fixed inset-0 z-30 flex flex-col items-center justify-center text-center px-4 bg-[#070818]/88 text-white overflow-y-auto">
             <p className="text-[10px] sm:text-xs tracking-[0.3em] text-[#7cf5c4] mb-2">DEPLOY CONCLUÍDO</p>
             <h2 className="font-display text-2xl sm:text-4xl font-semibold uppercase leading-none mb-4">
               Portfólio <span className="text-primary">no ar</span>
             </h2>
-            <dl className="grid grid-cols-4 gap-2 sm:gap-3 mb-4 text-[10px] sm:text-xs">
+            <dl className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4 text-xs">
               {[
                 ["Tempo", formatTime(hud.time)],
                 ["Commits", `${hud.commits}/${hud.totalCommits}`],
@@ -452,7 +468,7 @@ export const Game2D = () => {
                 ["Seções", `${hud.visited.length}/${SECTIONS.length}`],
               ].map(([label, value]) => (
                 <div key={label} className="border border-white/20 px-2 sm:px-3 py-1.5 sm:py-2">
-                  <dd className="font-display text-sm sm:text-xl tabular-nums">{value}</dd>
+                  <dd className="font-display text-xl tabular-nums">{value}</dd>
                   <dt className="text-white/55">{label}</dt>
                 </div>
               ))}
@@ -481,25 +497,28 @@ export const Game2D = () => {
         )}
       </div>
 
+      {/* During touch play this corner belongs to the movement buttons; the pause menu has the way out. */}
+      {!(isTouch && phase === "playing") && (
       <Link
         to="/"
         className="fixed bottom-3 left-1/2 -translate-x-1/2 sm:left-4 sm:translate-x-0 sm:bottom-4 z-10 px-3 py-1.5 text-[10px] sm:text-[11px] text-white/60 hover:text-white border border-white/15 bg-black/30 font-sans"
       >
         ← Voltar ao início
       </Link>
+      )}
 
       {/* Touch controls */}
       {isTouch && phase === "playing" && !panel && (
-        <div className="fixed inset-x-0 bottom-0 z-20 p-4 pb-12 flex items-end justify-between pointer-events-none">
+        <div className="fixed inset-x-0 bottom-0 z-20 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] flex items-end justify-between pointer-events-none">
           <div className="flex gap-3">
-            <button aria-label="Andar para a esquerda" className={`${touchButton} w-14 h-14`} {...hold("left")}>
+            <button aria-label="Andar para a esquerda" className={`${touchButton} w-16 h-16`} {...hold("left")}>
               <ArrowLeft className="w-6 h-6" />
             </button>
-            <button aria-label="Andar para a direita" className={`${touchButton} w-14 h-14`} {...hold("right")}>
+            <button aria-label="Andar para a direita" className={`${touchButton} w-16 h-16`} {...hold("right")}>
               <ArrowRight className="w-6 h-6" />
             </button>
           </div>
-          <button aria-label="Pular" className={`${touchButton} w-16 h-16`} {...hold("jump")}>
+          <button aria-label="Pular" className={`${touchButton} w-20 h-20`} {...hold("jump")}>
             <ArrowUp className="w-7 h-7" />
           </button>
         </div>

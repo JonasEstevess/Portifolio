@@ -4,6 +4,8 @@ export const TILE = 16;
 /** Internal resolution: 25 × 14 tiles. The canvas is scaled up with crisp pixels. */
 export const VIEW_W = 400;
 export const VIEW_H = 224;
+/** On portrait screens the view narrows down to this many pixels (16 tiles). */
+export const MIN_VIEW_W = 256;
 
 export const LEVEL_ROWS = 14;
 /** The two bottom rows of every chunk are ground (unless a pit is cut into them). */
