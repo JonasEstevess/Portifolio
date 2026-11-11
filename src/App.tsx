@@ -3,9 +3,10 @@ import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import Hub from "./pages/Hub.tsx";
 
 // Each experience is its own chunk: visiting the hub or the landing page never
-// downloads three.js.
+// downloads three.js or the game engine.
 const Index = lazy(() => import("./pages/Index.tsx"));
 const Scene3DPage = lazy(() => import("./pages/Scene3DPage.tsx"));
+const Game2DPage = lazy(() => import("./pages/Game2DPage.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 const RouteFallback = () => (
@@ -30,6 +31,7 @@ const App = () => (
         <Route path="/" element={<Hub />} />
         <Route path="/landing" element={<Index />} />
         <Route path="/3d" element={<Scene3DPage />} />
+        <Route path="/2d" element={<Game2DPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </Suspense>
