@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { atom, galaxy, gallery, helix, paperPlane, portrait, seeded, sphere, type Shape } from "./shapes";
 
-/** One entry per chapter, in order: intro, about, education, skills, projects, contact. */
-export const CHAPTER_COUNT = 6;
-const PROJECTS_CHAPTER = 4;
+/** The sculptures, by index. */
+export const SHAPE = { galaxy: 0, portrait: 1, helix: 2, atom: 3, gallery: 4, plane: 5 } as const;
+export type ShapeIndex = (typeof SHAPE)[keyof typeof SHAPE];
 
-const VERTEX = /* glsl */ `
+export const PARTICLE_VERTEX = /* glsl */ `
   attribute vec3 aFrom;
   attribute vec3 aTo;
   attribute vec3 aColorFrom;
@@ -63,7 +63,7 @@ const VERTEX = /* glsl */ `
   }
 `;
 
-const FRAGMENT = /* glsl */ `
+export const PARTICLE_FRAGMENT = /* glsl */ `
   precision mediump float;
   varying vec3 vColor;
   varying float vAlpha;
@@ -81,15 +81,19 @@ type Layout = { x: number; y: number; scale: number };
 export type StageOptions = {
   count: number;
   reducedMotion: boolean;
-  photoUrl: string;
-  /** Screenshot URLs for the project carousel, in display order. */
-  projectImages: string[];
+  /** Photo for the portrait sculpture; without it that slot stays a sphere. */
+  photoUrl?: string;
+  /** Screenshot URLs for an optional carousel shown inside the gallery sculpture. */
+  projectImages?: string[];
+  /** Draw over the page instead of on an opaque background. */
+  transparent?: boolean;
 };
 
 /**
- * The WebGL side of the 3D experience: one particle system that morphs
- * between a shape per chapter, plus a ring of project screenshots. Knows
- * nothing about React; the component drives it through a few setters.
+ * One particle system that morphs between sculptures (galaxy, portrait,
+ * helix, atom, gallery, paper plane). The morph happens entirely in the
+ * vertex shader. Knows nothing about React; a component drives it through a
+ * few setters.
  */
 export class ParticleStage {
   private renderer: THREE.WebGLRenderer;
@@ -123,9 +127,13 @@ export class ParticleStage {
     private options: StageOptions
   ) {
     const { count } = options;
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setClearColor(0x05060f, 1);
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: false,
+      alpha: options.transparent === true,
+      powerPreference: "high-performance",
+    });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, options.transparent ? 1.5 : 2));
+    this.renderer.setClearColor(0x05060f, options.transparent ? 0 : 1);
     mount.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
@@ -159,8 +167,8 @@ export class ParticleStage {
     this.points = new THREE.Points(
       geometry,
       new THREE.ShaderMaterial({
-        vertexShader: VERTEX,
-        fragmentShader: FRAGMENT,
+        vertexShader: PARTICLE_VERTEX,
+        fragmentShader: PARTICLE_FRAGMENT,
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
@@ -178,8 +186,8 @@ export class ParticleStage {
     );
     this.rig.add(this.points);
 
-    this.buildCarousel();
-    this.loadPortrait();
+    this.buildCarousel(options.projectImages ?? []);
+    if (options.photoUrl) this.loadPortrait(options.photoUrl);
     this.resize();
     this.animate();
   }
@@ -258,7 +266,7 @@ export class ParticleStage {
     this.progress = this.options.reducedMotion ? 1 : 0;
   }
 
-  private loadPortrait() {
+  private loadPortrait(photoUrl: string) {
     const image = new Image();
     image.onload = () => {
       if (this.disposed) return;
@@ -272,13 +280,12 @@ export class ParticleStage {
       ctx.drawImage(image, 0, 0, width, height);
       const pixels = ctx.getImageData(0, 0, width, height).data;
       this.shapes[1] = portrait(this.options.count, seeded(7), pixels, width, height);
-      if (this.chapter === 1) this.morphTo(this.shapes[1]);
+      if (this.chapter === SHAPE.portrait) this.morphTo(this.shapes[1]);
     };
-    image.src = this.options.photoUrl;
+    image.src = photoUrl;
   }
 
-  private buildCarousel() {
-    const urls = this.options.projectImages;
+  private buildCarousel(urls: string[]) {
     const loader = new THREE.TextureLoader();
     const step = (Math.PI * 2) / Math.max(urls.length, 1);
     const radius = 2.55;
@@ -311,7 +318,7 @@ export class ParticleStage {
     if (this.progress < 1) this.progress = Math.min(1, this.progress + dt / 1.7);
     uniforms.uProgress.value = this.progress;
     uniforms.uBurst.value *= Math.pow(0.04, dt);
-    uniforms.uCalm.value += ((this.chapter === 1 ? 1 : 0) - uniforms.uCalm.value) * ease(2);
+    uniforms.uCalm.value += ((this.chapter === SHAPE.portrait ? 1 : 0) - uniforms.uCalm.value) * ease(2);
 
     // Rig follows the layout the UI asked for.
     this.rig.position.x += (this.layout.x - this.rig.position.x) * ease(3);
@@ -320,9 +327,9 @@ export class ParticleStage {
     this.rig.scale.setScalar(scale);
 
     // The portrait and the plane face the viewer; everything else slowly turns.
-    const spins = this.chapter === 0 || this.chapter === 2 || this.chapter === 3;
+    const spins = this.chapter === SHAPE.galaxy || this.chapter === SHAPE.helix || this.chapter === SHAPE.atom;
     if (spins && !this.options.reducedMotion) {
-      this.spin += dt * (this.chapter === 0 ? 0.06 : 0.22);
+      this.spin += dt * (this.chapter === SHAPE.galaxy ? 0.06 : 0.22);
     } else {
       const nearest = Math.round(this.spin / (Math.PI * 2)) * Math.PI * 2;
       this.spin += (nearest - this.spin) * ease(2.5);
@@ -341,7 +348,7 @@ export class ParticleStage {
     uniforms.uMouseStrength.value += (strength - uniforms.uMouseStrength.value) * ease(6);
 
     // Project carousel
-    const showing = this.chapter === PROJECTS_CHAPTER && this.progress > 0.45;
+    const showing = this.frames.length > 0 && this.chapter === SHAPE.gallery && this.progress > 0.45;
     this.carouselOpacity += ((showing ? 1 : 0) - this.carouselOpacity) * ease(showing ? 3 : 8);
     this.carousel.visible = this.carouselOpacity > 0.01;
     if (this.carousel.visible) {
