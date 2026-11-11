@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { CustomCursor } from "@/components/portfolio/CustomCursor";
 import { BackgroundGlow } from "@/components/portfolio/BackgroundGlow";
 import { LoadingScreen } from "@/components/portfolio/LoadingScreen";
@@ -13,6 +14,9 @@ import { Contact } from "@/components/portfolio/Contact";
 import { Footer } from "@/components/portfolio/Footer";
 import { usePageTitle } from "@/hooks/use-page-title";
 
+// three.js arrives after the page is interactive; until then (and without WebGL) the glow background stands alone.
+const ParticleBackdrop = lazy(() => import("@/components/particles/ParticleBackdrop"));
+
 const BAND = ["Engenharia de Software", "React", "Python", "Java", "Inteligência Artificial", "C++", "UI/UX"];
 
 const STATEMENT =
@@ -27,6 +31,9 @@ const Index = () => {
   return (
     <div className="min-h-screen text-foreground relative">
       <BackgroundGlow />
+      <Suspense fallback={null}>
+        <ParticleBackdrop />
+      </Suspense>
       <div className="grain fixed inset-0 z-[1] pointer-events-none" aria-hidden />
       <CustomCursor />
       <Navbar />
