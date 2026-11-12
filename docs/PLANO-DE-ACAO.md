@@ -37,6 +37,19 @@ O parque em primeira pessoa da versão 2.0 foi substituído. Ele exigia teclado 
 bloqueava o celular em pé e escondia o conteúdo atrás de uma caminhada; o novo formato
 funciona com um dedo em qualquer tela.
 
+## Entregue na versão 3.0
+
+| Ação                                                                                                   | Branch              |
+| ------------------------------------------------------------------------------------------------------ | ------------------- |
+| 3D refeito como jogo em primeira pessoa: ilhas flutuantes, pontes com vãos, cristais, monumentos e portal | `feature/scene3d`   |
+| Esculturas de partículas movidas para um módulo compartilhado                                             | `feature/scene3d`   |
+| Fundo de partículas na landing, que muda de forma a cada seção                                            | `feature/about`     |
+| Hub e rodapé descrevendo o novo mundo 3D                                                                  | `feature/hub-page`  |
+
+A versão 2.1 (escultura de partículas em tela cheia, navegada por rolagem) durou um dia: o
+pedido era um jogo em que se anda. As partículas ficaram, agora como monumentos dentro do
+mundo e como fundo da landing.
+
 ## Próximos passos
 
 ### Prioridade alta

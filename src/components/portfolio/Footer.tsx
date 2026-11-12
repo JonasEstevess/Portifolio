@@ -4,7 +4,7 @@ import { GITHUB_URL, LINKEDIN_URL, WHATSAPP_URL } from "@/data/contact";
 
 const experiences = [
   { to: "/", label: "Início" },
-  { to: "/3d", label: "Universo 3D" },
+  { to: "/3d", label: "Mundo 3D" },
   { to: "/2d", label: "Jogo 2D" },
 ];
 
